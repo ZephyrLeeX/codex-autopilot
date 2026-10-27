@@ -1,0 +1,22 @@
+{
+  "_comment": "真实脱敏样本:0.162.1 rollout JSONL 的 event_msg/token_count 事件 rate_limits 字段(仅百分比/时间戳/枚举,无会话内容)。采集记录见 docs/evidence/2026-10-27-phase0-local-probes.md §3。",
+  "type": "event_msg",
+  "payload": {
+    "type": "token_count",
+    "info": {
+      "last_token_usage": {},
+      "model_context_window": {},
+      "total_token_usage": {}
+    },
+    "rate_limits": {
+      "limit_id": "codex",
+      "limit_name": null,
+      "plan_type": "team",
+      "rate_limit_reached_type": null,
+      "spend_control_reached": false,
+      "credits": {"has_credits": true, "unlimited": false},
+      "primary": {"used_percent": 100.0, "resets_at": 1792583368, "window_minutes": 300},
+      "secondary": {"used_percent": 47.0, "resets_at": 1793099965, "window_minutes": 10080}
+    }
+  }
+}

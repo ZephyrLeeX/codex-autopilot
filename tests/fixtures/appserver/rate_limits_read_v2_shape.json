@@ -1,0 +1,18 @@
+{
+  "_comment": "App Server v2 `account/rateLimits/read` 响应形状(字段名与类型来自 0.162.1 官方 schema 导出;数值为人工构造)。注意与 JSONL 版本命名差异(camelCase vs snake_case)。",
+  "accountId": "acct_example",
+  "ordinaryUsageAllowed": false,
+  "rateLimits": {
+    "limitId": "codex",
+    "limitName": null,
+    "planType": "pro",
+    "rateLimitReachedType": "rate_limit_reached",
+    "credits": {"hasCredits": false, "unlimited": false, "balance": null},
+    "primary": {"usedPercent": 100, "resetsAt": 1792583368, "windowDurationMins": 300},
+    "secondary": {"usedPercent": 62, "resetsAt": 1793099965, "windowDurationMins": 10080}
+  },
+  "rateLimitResetCredits": {
+    "_comment": "RateLimitResetCreditsSummary 形状(availableCount 等)以官方 schema 为准;此处置空",
+    "availableCount": 1
+  }
+}
