@@ -1,0 +1,12 @@
+# codex-autopilot timer 模式(可选,cron 风格;见 docs/deployment.md §4)
+# 与常驻 service 二选一,不要同时 enable。
+
+# systemd/codex-autopilot-check.service
+[Unit]
+Description=codex-autopilot one-shot tick
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/codex-autopilot tick
+# tick 内部持单实例锁;若常驻服务在运行会以退出码 21 结束(可忽略)

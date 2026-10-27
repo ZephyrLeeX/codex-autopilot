@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "codex-autopilot"
+version = "0.1.0.dev0"
+description = "Monitor Codex CLI sessions, track 5-hour/weekly quota windows, and safely auto-resume interrupted tasks on Linux."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" } # 待用户最终确认,见 docs/development-plan.md 风险条目 R-10
+authors = [{ name = "codex-autopilot contributors" }]
+keywords = ["codex", "openai", "quota", "automation", "systemd"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+codex-autopilot = "codex_autopilot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/lijx/codex-autopilot" # 占位,发布前确认
+Issues = "https://github.com/lijx/codex-autopilot/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/codex_autopilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

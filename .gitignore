@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 本机环境噪音,与项目无关
+.directory
+
+# 本地运行时数据(绝不提交数据库与凭据)
+*.sqlite
+*.sqlite3
+*.db
+state.db*
+
+# 调研产物与临时目录
+/tmp/
+.reference/

@@ -1,0 +1,46 @@
+# codex-autopilot 配置示例(复制到 ~/.config/codex-autopilot/config.toml 后修改)
+# 规则:所有路径可覆盖;凭据绝不写入本文件(用环境变量或密码命令)。
+
+[paths]
+# state_dir = "~/.local/state/codex-autopilot"   # 数据库/锁/备份(默认即此,无需设置)
+
+[codex]
+# binary = "codex"            # codex 可执行文件(名字或绝对路径)
+# codex_home = "~/.codex"     # 默认 Codex Home;多账户在 add 时用 --codex-home 指定
+
+[scheduler]
+# tick_interval = 60            # 常规 tick 周期(秒)
+# intensive_interval = 60       # 存在等待计划时的额度刷新下限(秒)
+
+[quota]
+# exhausted_threshold_pct = 99  # 耗尽判定阈值(95-100)
+# resume_max_pct = 90           # 恢复判定:窗口用量须低于此值
+# fresh_ttl_sec = 600           # 快照过期阈值
+# regular_probe_interval = 300  # 常规实时查询间隔(秒)
+# hint_min_pct = 90             # 90-98% 作为 reset 提示带(hint)
+
+[recovery]
+# confirm_timeout_sec = 1800    # 投递接受后,队列中无我方行且无新轮次时的超时
+                               # (队列中有我方行=消息安全滞留,不触发超时,仅低频提醒)
+# queue_timeout_sec = 45        # queue 子进程超时
+# missing_grace_sec = 86400     # rollout 缺失宽限期
+# min_delivery_gap_sec = 600    # 同会话两次投递最小间隔(G12)
+# template = "Continue the previous task automatically. (codex-autopilot resume #{failure_id})"
+
+[notify]
+# console = true                # 控制台/日志渠道
+# safety_events_always_on = true  # needs_human/recovery_failed 不可被会话策略关闭
+
+[notify.smtp]
+enabled = false
+host = "smtp.example.com"        # 任何服务商;不硬编码特定厂商
+port = 465
+encryption = "ssl"               # ssl | starttls | none
+username = "alerts@example.com"
+# 密码从环境变量读(推荐)或外部密码命令:
+password_env = "CODEX_AUTOPILOT_SMTP_PASSWORD"
+# password_cmd = ["pass", "show", "smtp/example"]   # 二选一
+from = "codex-autopilot <alerts@example.com>"
+to = ["me@example.com"]
+# retry = 3                      # 失败重试次数
+# retry_backoff_sec = [30, 120, 480]

@@ -1,0 +1,11 @@
+# systemd/codex-autopilot-check.timer
+[Unit]
+Description=Run codex-autopilot tick periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=90s
+# 提前恢复响应粒度 = 此周期;常驻 service 模式可更细且通知即时
+
+[Install]
+WantedBy=timers.target

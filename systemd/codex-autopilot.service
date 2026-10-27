@@ -1,0 +1,22 @@
+# codex-autopilot systemd 用户服务(默认常驻方案)
+# 安装方法与路径适配见 docs/deployment.md §3;
+# 也可用 `codex-autopilot doctor --print-systemd-unit` 生成适配本机安装路径的版本。
+
+[Unit]
+Description=codex-autopilot — Codex CLI session monitor and safe auto-resume
+Documentation=file:%h/.local/share/docs/codex-autopilot/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# pipx 默认路径;pip/pipx 安装位置不同时请用 doctor 生成的单元文件
+ExecStart=%h/.local/bin/codex-autopilot run
+Restart=on-failure
+RestartSec=15
+# 优雅退出:SIGTERM 后完成当前 tick(TimeoutStopSec 内)
+TimeoutStopSec=45
+# 应用层单实例锁(flock)+ 启动清扫保证状态一致,无需额外配置
+
+[Install]
+WantedBy=default.target
