@@ -36,8 +36,8 @@ dev = [
 codex-autopilot = "codex_autopilot.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/lijx/codex-autopilot" # 占位,发布前确认
-Issues = "https://github.com/lijx/codex-autopilot/issues"
+Homepage = "https://github.com/ZephyrLeeX/codex-autopilot"
+Issues = "https://github.com/ZephyrLeeX/codex-autopilot/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/codex_autopilot"]
