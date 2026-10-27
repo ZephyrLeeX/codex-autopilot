@@ -1,7 +1,7 @@
 # Codex Autopilot
 
 > 通用 Codex CLI 会话监控与安全自动恢复系统(Linux)。
-> 状态:**Phase 3 已完成(额度监控:rollout 解析/额度快照模型/App Server 只读客户端/`quota` 命令)**,Phase 4+ 开发中 —— 见 [docs/development-plan.md](docs/development-plan.md)。
+> 状态:**Phase 4 已完成(多会话调度:失败检测/恢复状态机/恢复计划/守门评估/tick 调度/提前恢复检测 + `status`/`history`/`check`/`tick`/`run`/`pause`/`resume` 命令)**,Phase 5+(安全投递)开发中 —— 见 [docs/development-plan.md](docs/development-plan.md)。
 
 Codex Autopilot 监控用户指定的 Codex CLI 会话,识别五小时/每周额度窗口耗尽导致的任务中断,并在满足全部安全条件后,用精确的会话 UUID 通过 `codex queue` 自动续作原任务。
 

@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 3 已完成(P3-T1~T4,2026-10-27;见 §2.2 实施记录) |
+| 状态 | Phase 4 已完成(P4-T1~T6,2026-10-27;见 §2.3 实施记录) |
 | 覆盖需求 | 任务书 §七(阶段划分)、§九(本轮后各模块) |
 | 关联 | 全部设计文档;测试锚点见 [testing.md](testing.md) |
 
@@ -61,16 +61,27 @@ flowchart LR
 - **测试(L1)**:331 通过 / 0 失败(pytest;unit + integration + compatibility;Phase 2 基线 168,本轮 +163)。覆盖:T-PARSE(发现/命名/分裂链/撕裂行/坏行/截断重读/只读断言)、T-QUOTA-01..09(99/100、weekly、双窗口 max-resets、hint、unknown、credits、spend_control、ordinaryUsageAllowed 交互、空快照)、T-COMPAT(fixture 驱动 8 种 appserver 形状 + JSONL camel/snake)、T-GUARD-02/06(白名单静态扫描 + Fake 方法日志断言)、T-CLI-QUOTA(--json schema 锁定、S-08 降级、多账户隔离、红线零副作用)。ruff check/format 全绿;wheel 构建 + 干净 venv 安装冒烟通过;**GitHub Actions run #3 @ 6ca5516 全绿**。**附带修复(P2 遗留)**:ci.yml 两处 step 名含未加引号冒号导致 YAML 解析失败——Phase 2 的 CI 实际从未执行(P2 证据中测试结论均为本地 L1,不受影响);已在 6ca5516 修复并线上验证。证据:[evidence/2026-10-27-phase3-l1.md](evidence/2026-10-27-phase3-l1.md)。
 - **遗留(交后续 Phase)**:常驻 app-server 子进程与密集刷新节奏(D-QM-5/§6)随 P4-T5 tick 循环;`list --codex-sessions` 使用现成 discovery 属 P4-T1;快照保留期清理(30 天)随守护进程维护任务(P6);开发机本地 codex 版本现为 0.154.0(phase0 证据记录时为 0.162.1),L1 测试不依赖本地二进制,不影响结论。
 
-### Phase 4 — 多会话调度
+### Phase 4 — 多会话调度(✅ 已完成 2026-10-27)
 
-| ID | 任务 | 产出 | 依赖 | DoD |
-| --- | --- | --- | --- | --- |
-| P4-T1 | 会话发现与注册增强 | `list --codex-sessions`、thread_catalog 交叉 | P3-T1 | 与真实目录形状的 fixture 对齐(T-COMPAT) |
-| P4-T2 | 失败检测器 | `recovery/detector`(双源自适应、分类表) | P3-T1,T4 | S-01~S-05 检测侧;interrupt→needs_human;幂等 |
-| P4-T3 | 状态机 | `recovery/state_machine`(全部迁移+覆盖层) | P2-T2,P4-T2 | T-SM 全组:每条迁移×每守卫失败分支;fail-closed 断言 |
-| P4-T4 | 恢复计划器 | plan/not_before 计算(hint/max resets) | P4-T3 | 双窗口调度参考正确(S-05) |
-| P4-T5 | tick 循环与节奏 | `scheduling/`(常规/密集刷新、异常隔离、run/tick 命令) | P2-T5,P4-T3 | T-SCHED-01(S-10);`status`/`history` 命令;systemd unit 试装 |
-| P4-T6 | 提前恢复检测 | E1–E4 信号 + check 命令 | P4-T4,T5 | S-06/07(观察侧);check --no-deliver 零副作用断言 |
+| ID | 任务 | 产出 | 依赖 | DoD | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| P4-T1 | 会话发现与注册增强 | `list --codex-sessions`、thread_catalog 交叉 | P3-T1 | 与真实目录形状的 fixture 对齐(T-COMPAT) | ✅ |
+| P4-T2 | 失败检测器 | `recovery/detector`(双源自适应、分类表) | P3-T1,T4 | S-01~S-05 检测侧;interrupt→needs_human;幂等 | ✅ |
+| P4-T3 | 状态机 | `recovery/state_machine`(全部迁移+覆盖层) | P2-T2,P4-T2 | T-SM 全组:每条迁移×每守卫失败分支;fail-closed 断言 | ✅ |
+| P4-T4 | 恢复计划器 | plan/not_before 计算(hint/max resets) | P4-T3 | 双窗口调度参考正确(S-05) | ✅ |
+| P4-T5 | tick 循环与节奏 | `scheduling/`(常规/密集刷新、异常隔离、run/tick 命令) | P2-T5,P4-T3 | T-SCHED-01(S-10);`status`/`history` 命令;systemd unit 试装 | ✅ |
+| P4-T6 | 提前恢复检测 | E1–E4 信号 + check 命令 | P4-T4,T5 | S-06/07(观察侧);check --no-deliver 零副作用断言 | ✅ |
+
+#### 2.3 Phase 4 实施记录(2026-10-27)
+
+- **交付物**:`recovery/` 包(model 失败类别、detector 增量轮次检测、state_machine 全迁移、planner not_before、early E1–E4 信号、evaluation G6 三证据+G1..G12 评估)+ `scheduling/`(scheduler tick 引擎、appserver_pool 常驻连接、sweep 启动清扫)+ `store/recovery_dao.py`(failures/plans/session_state/deliveries)+ 迁移 `0002_snapshot_flags.sql`(快照判定字段结构化:ordinary/spend_control/reached_type/reset_credits,跨快照比较的数据基座)+ `codexif/catalog.py`(list --codex-sessions 数据面,含 local_thread_catalog 只读交叉)+ CLI:`list --codex-sessions`、`status`、`history`、`check [--no-deliver]`、`tick`、`run`、`pause/resume [--ack-needs-human]`。测试侧:`tests/helpers.py`(rollout 事件构造)。
+- **Phase 4 边界(任务书)**:只实现检测、状态机与调度**决策**;评估产出 DeliveryDecision(逐守门结果),`ready=True` 仅审计 `delivery_ready` —— 无 attempting 落库、无 spawn、无任何 queue 投递(投递执行器属 P5-T2)。全集成剧本断言 deliveries 恒空、无 DELIVERING 状态、Fake app-server 日志仅白名单只读方法(T-GUARD-06)。
+- **设计决策落地**:PAUSED 为覆盖层(`enabled=0` 冻结一切自动迁移,展示层 effective_state 叠加;D-SM-2);MISSING 为存储状态,detail 记 `missing_from_state` 供恢复回原状态;额度失败细分按"错误变体 + 轮内最近 token_count 样本"(90-98 hint 窗口在错误事件证实归因时计入 blocking,未闭合轮次路径则必须 ≥ 耗尽阈值);quota_credits/spend_control/unknown → manual_ack → NEEDS_HUMAN(credits_or_spend_control_no_reset / unknown_quota_kind);瞬态类只审计不建失败;supersede 适用于 open failure 之后的任何用户消息(P4 无 marker,Phase 5 起排除我方 marker);planner 对缺/非正 resets_at → manual_ack、已过期 → 立即到期、异常偏晚(> 快照+窗口+1h 容差)→ 按窗口上限截断并记 basis.note。
+- **G6 三证据实现口径**:取"失败基线以来最新的 appserver ok 快照"为证据快照,要求非 stale、同 bucket_key 窗口滚动或跌破 resume_max、ordinaryUsageAllowed 非 false;JSONL 恢复样本永远不是证据(D-QM-6,S-20 集成断言)。
+- **实现细节与设计文档的对齐**:① E4 通知按账户归属(QuotaService.last_server_notifications,每次刷新重置);② App Server 常驻子进程池(D-QM-5)落地:按账户惰性启动、跨 tick 复用、失败退避 60→120→300s、空闲 600s 回收;③ 快照去重收紧为"同账户同源同 captured_at 且 **raw 相同**"——同秒内 tick 与手动 check 数据不同时不丢新数据(否则评估用过期快照,实测发现);④ Fake app-server 改为**每条消息重读剧本**,支持常驻连接下中途换剧本(测试基础设施修正);⑤ 通知 method 常量集中 codexif/appserver.py(T-GUARD-02 扫描白名单扩展)。
+- **新增 reason 码**(recovery §7 表之外,已登记):`turn_interrupted`/`terminal_failure`/`unknown_error_variant`(检测直入 NEEDS_HUMAN)、`credits_or_spend_control_no_reset`(manual_ack 类)、`swept_attempting`(启动清扫)。
+- **测试(L1)**:467 通过 / 0 失败(pytest;Phase 3 基线 331,本轮 +136)。新增覆盖:检测分类全表(5h/weekly/dual/credits/spend_control/unknown、aborted、terminal、unknown、瞬态、hint、无样本、分裂链跨文件、增量游标、未闭合轮)、状态机全迁移×守卫失败×fail-closed 原子回滚×暂停冻结、计划器 max/expired/capped/manual、E1–E4、G6 三证据(jsonl 非证据/stale/ordinary false/双窗口全解除)、G1..G12 逐项、调度器集成(S-01/05/06/07/08/10/14/15/20/24/28、人工接管、暂停/全局暂停、重启游标重建与去重、崩溃残留补计划、启动清扫 attempting→unknown、孤儿计划 expired、同账户单查询、check --no-deliver 零副作用)、连接池(复用/分账户/回收/退避)、CLI 全命令(--json schema、退出码 0/2/10/11/21、thread_catalog 交叉、archived/分裂链/junk 文件容忍)。ruff check/format 全绿;wheel 构建 + 干净 venv 安装冒烟通过(含 0002 迁移打包);systemd 三单元 `systemd-analyze verify` 试装通过(本机链接二进制后零告警)。证据:[evidence/2026-10-27-phase4-l1.md](evidence/2026-10-27-phase4-l1.md)。
+- **遗留(交后续 Phase)**:投递执行器与确认协议(P5-T2/T3,DELIVERING/DELIVERED_UNCONFIRMED/RECOVERED 迁移已实现待接线);thread_history 主源检测与 queue 只读适配(P5-T4,检测器分类表与证据结构已按双源设计);通知框架(P6,task_completed/needs_human 目前审计记录);真实二进制上常驻池稳定性与 E4 推送时机(L2/L3)。
 
 ### Phase 5 — 安全恢复(最高风险阶段,评审最严)
 
@@ -111,7 +122,7 @@ flowchart LR
 
 ## 4. 下一阶段建议(任务书 §九-8 的回答)
 
-**Phase 3 已完成(P3-T1..T4 + Fake app-server + `quota` 命令)**。下一步建议:**P4-T1(会话发现,直接复用 P3 discovery)与 P4-T2(失败检测器,复用 rollout 解析与额度评估)先行**,随后 P4-T3 状态机汇合;P3 交付的 `assess_snapshot`(阻塞评估)与快照入库即为失败检测与 G6 守门的数据基座。
+**Phase 4 已完成(P4-T1..T6 + 调度器/状态机/评估决策 + 全套 CLI)**。下一步建议:**P5-T1(CommandRunner + queue 客户端)与 P5-T2(投递编排)为本阶段核心**——P4 交付的 DeliveryDecision 已给出 G1..G12 逐项结果与 `ready` 判定,P5 只需在"全部通过"处接入 attempting 落库 → spawn → 回执分类(崩溃矩阵由 P4 的启动清扫已就位一半:attempting→unknown→NEEDS_HUMAN);P4 审计中的 `delivery_ready` 即接线点。P5-T3 确认协议可复用 P4 检测器的增量游标与 user 消息观察(marker 排除逻辑为其预留)。
 
 ## 5. 风险登记(摘;完整登记册在 phase0-research.md §5)
 

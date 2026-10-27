@@ -39,6 +39,7 @@ tests/
 - 假时钟:`TimeSource` 注入,所有超时/节奏/新鲜度判定可确定性快进;DST/跨时区用例注入相应本地时区(NFR-04)。
 - Fake codex CLI 通过 `argv[0]` 指向测试目录的脚本实现;配置 `codex.binary_path` 本就支持覆盖(生产亦然)。
 - **Phase 2 已交付**:`tests/fakes/clock.py`(FakeClock)、`tests/conftest.py`(HOME/XDG 隔离 autouse fixture,L1 红线的结构保证)、`tests/unit/test_source_scan.py`(T-GUARD-04 部分与 T-STORE-03 审计仅 INSERT)。Fake codex CLI 随 P5-T1 交付。
+- **Phase 4 已交付**:`tests/helpers.py`(rollout 事件构造,与 fake_clock 基准对齐);Fake app-server 改为每条消息重读剧本(常驻连接下可中途换剧本);`tests/unit/test_recovery_detector.py`、`test_state_machine.py`、`test_recovery_planner.py`、`test_recovery_evaluation.py`、`test_early_recovery.py`、`test_appserver_pool.py`;`tests/integration/test_scheduler.py`(S-01/05/06/07/08/10/14/15/20/24/28、重启/崩溃残留/清扫/check 零副作用)、`test_cli_p4.py`(全命令 + 退出码 0/2/10/11/21 + thread_catalog 交叉)。
 - **Phase 3 已交付**:`tests/fakes/app_server.py`(可执行伪 app-server:argv 形态与真实二进制一致 `[脚本] app-server --stdio`,剧本经 `FAKE_APP_SERVER_SCRIPT` 环境变量注入,全量收发日志写 `FAKE_APP_SERVER_LOG` 供 T-GUARD-06 断言;行为开关:挂起/错误响应/垃圾行/反向请求/通知推送/握手前退出);`tests/fixtures/jsonl/`(正常/5h99/5h100/weekly100/双耗尽/camel 命名/无 token_count/撕裂尾行/坏行 fixtures)+ `tests/fixtures/appserver/`(byLimitId 新形状/legacy 回退/多桶/credits/spend_control/空/null 字段/snake 命名/未知窗口/位置推断);`tests/compatibility/`(fixture 驱动形状测试);`tests/conftest.py` 增 `fake_appserver_env`/`write_rollout`/`fixture_path` fixtures 与 `write_scenario` helper。CLI 集成测试经 `CODEX_AUTOPILOT_CODEX__BINARY` 环境变量把 codex.binary 指向 Fake(L1 红线:全程无真实 codex 进程)。
 
 ## 3. 场景矩阵(S↔测试 ID)

@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 1 定稿 v1.0 |
+| 状态 | v1.1(Phase 4 实现:检测器/状态机/计划器/评估落地,见 §10) |
 | 覆盖需求 | FR-05、FR-06、FR-08(状态部分) |
 | 关联 | [queue-safety.md](queue-safety.md)(守门与投递协议)、[quota-monitoring.md](quota-monitoring.md)(恢复判定) |
 
@@ -143,3 +143,13 @@ stateDiagram-v2
 | D-SM-4 | 确认以消息尾 marker 为最强证据(C2) | marker 是唯一能把"新轮次=我们的消息"直接钉死的证据;时间窗推断会把用户手动消息误认为我们的 | 仅 new_turn 时间窗推断(误认人工消息) |
 | D-SM-5 | 用户取消(aborted)永不自动重启 | 任务书红线 FR-08-A6 | 视作可恢复失败(违背用户意图) |
 | D-SM-6 | RECOVERED 后回 ACTIVE 而非终态监控 | 同一会话可能再次额度耗尽,循环服务 | 单次恢复后停止监控(与长期无人值守目标矛盾) |
+---
+
+## 10. Phase 4 实施记录(2026-10-27)
+
+- **模块**:`recovery/detector.py`(增量轮次跟踪:turn_context/task_started/task_complete/token_count/user message;分类表 §4.2 全量落地,双拼写兼容)、`recovery/state_machine.py`(§2 全部迁移 + §7 reason 码;PAUSED 覆盖层经 `effective_state` 展示,D-SM-2)、`recovery/planner.py`(§4.3 细分 → not_before/max-resets/不确定处理)、`recovery/evaluation.py`(G6 三证据 + G1..G12 逐项评估 → DeliveryDecision)。
+- **分类实现口径**:90-98 hint 窗口在 `usage_limit_exceeded` 错误事件证实归因时计入 blocking(§4.3);未闭合轮次路径(§4.2 回退)无错误事件佐证,必须任一窗口 ≥ 耗尽阈值才成立(hint 不算)。turn 去重以 (session, turn_id) 为键(UNIQUE 之外的第二道,跨重启重读幂等)。
+- **supersede(P4)**:open failure 之后出现的任何用户消息即人工接管(Phase 4 无我方投递,故无 marker 排除;Phase 5 投递落地后在 G3/观察侧排除自家 marker)。证据只留时间戳 + 首 32 字符(NFR-09)。
+- **MISSING**:detail 记 `missing_from_state`,文件回来恢复原状态(WAITING_RECOVERY 不因短暂缺文件丢失)。
+- **新增 reason 码**(§7 表外,已登记):`turn_interrupted` / `terminal_failure` / `unknown_error_variant`(检测直入 NEEDS_HUMAN)、`credits_or_spend_control_no_reset`(manual_ack 类额度失败)、`swept_attempting`(启动清扫)。
+- **投递相位迁移(begin_delivery / delivery_accepted / delivery_failed / confirm_recovered)已实现待接线**——Phase 4 不投递(任务书边界),Phase 5 的 DeliveryManager 在 `delivery_ready` 审计点接入。

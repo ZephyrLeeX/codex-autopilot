@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | v1.2(Phase 2 实现同步,D2 经安全复审修订;Phase 3 落地 §2 中 codexif/quota 两包) |
+| 状态 | v1.3(Phase 4 实现同步:recovery/scheduling 两包落地,§2;调度决策止于 DeliveryDecision,投递执行属 Phase 5) |
 | 覆盖需求 | 全部 FR/NFR 的结构映射 |
 | 关联 | 全部专项设计文档 |
 
@@ -71,8 +71,8 @@ codex_autopilot/
 │   ├── codexdb.py        #   thread_history/queue SQLite 只读适配(存在则用)
 │   └── discovery.py      #   会话文件发现(sessions/**、分裂链、archived)
 ├── quota/                # 快照解析(双命名兼容)、窗口模型、耗尽/恢复判定
-├── recovery/             # 状态机、失败检测、恢复计划、守门、投递管理、确认
-├── scheduling/           # tick 循环、节奏控制(密集/常规刷新)、单实例锁
+├── recovery/             # 状态机、失败检测、恢复计划、守门、投递管理、确认(P4:前四者+G1..G12 评估已落地)
+├── scheduling/           # tick 循环、节奏控制(密集/常规刷新)、单实例锁(P4:scheduler/appserver_pool/sweep 落地)
 ├── notify/               # EventBus、sink(console/smtp)、去重
 ├── doctor/               # L0/L2 检查实现
 └── util/                 # Clock、uuid 校验、路径规范化、审计写入

@@ -121,7 +121,7 @@ NEEDS_HUMAN 的解除:`resume --session <name> --ack-needs-human`,显式确认�
 
 ## 6. 会话发现辅助(非注册必需)
 
-提供 `codex-autopilot list --codex-sessions`(只读扫描 Codex Home `sessions/`(含子目录与分裂链命名 `<A>_<B>.jsonl`)与 `archived_sessions/`,新版可交叉利用 `sqlite/codex.db` 的 `local_thread_catalog` 表;汇总最近 N 个会话:UUID、起始时间、cwd、行数、最后事件时间)帮助用户找到想注册的 UUID。同样只读。
+提供 `codex-autopilot list --codex-sessions`(只读扫描 Codex Home `sessions/`(含子目录与分裂链命名 `<A>_<B>.jsonl`)与 `archived_sessions/`,新版可交叉利用 `sqlite/codex.db` 的 `local_thread_catalog` 表;汇总最近 N 个会话:UUID、起始时间、cwd、行数、最后事件时间)帮助用户找到想注册的 UUID。同样只读。**已交付(P4-T1,codexif/catalog.py)**:local_thread_catalog 列名跨版本未核实,按候选列名(thread_uuid/uuid/thread_id/id)探测;无库或形状不符按『无目录』处理,不影响列表本身。
 
 ## 7. 删除与数据保留
 

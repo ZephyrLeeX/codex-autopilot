@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | v1.1(Phase 2 实现;§2 PRAGMA 经安全复审修订,见 §2.1 / D-PER-7) |
+| 状态 | v1.2(Phase 4:0002 迁移与启动清扫落地,见 §11) |
 | 覆盖需求 | FR-09、FR-08-A7、NFR-06 |
 | 关联 | [session-management.md](session-management.md)(实体语义)、[queue-safety.md](queue-safety.md)(投递协议) |
 
@@ -249,7 +249,7 @@ COMMIT;
 
 ## 6. 迁移框架
 
-- 目录 `src/codex_autopilot/store/migrations/`:`NNNN_描述.sql`(NNNN 从 0001 起,即上文 v1 全量;`schema_migrations` 表本身由 runner 在应用任何迁移前 bootstrap 创建,不在迁移文件内)。
+- 目录 `src/codex_autopilot/store/migrations/`:`NNNN_描述.sql`(`0001_init.sql` 即上文 v1 全量;`0002_snapshot_flags.sql` 为 Phase 4 新增,见 §11;`schema_migrations` 表本身由 runner 在应用任何迁移前 bootstrap 创建,不在迁移文件内)。
 - 启动/CLI 打开数据库时:创建 `schema_migrations` → 依序执行未应用迁移(每个迁移一个 IMMEDIATE 事务)→ 记录版本。
 - 禁止修改已发布迁移;变更 = 新增迁移。降级不支持(文档说明,回滚靠备份)。
 - 迁移执行时 `PRAGMA user_version` 与表内版本在**同一事务**内双写,防半迁移状态;打开数据库时校验两者一致,不一致即拒绝打开(受限,交人工处理)。
@@ -296,3 +296,11 @@ kill -9 安全性论证:SQLite WAL 崩溃后自动回滚未完成事务;已提�
 | D-PER-5 | daemon flock 单实例 + tick 短暂持锁 | 防双调度器竞争投递(S-17),实现简单 | 仅靠数据库锁(粒度不足,评估期间仍可并发) |
 | D-PER-6 | 时间统一 Unix 秒 UTC | 时区零歧义;展示层本地化(NFR-04) | 本地时间字符串(排序/比较地狱) |
 | D-PER-7 | `synchronous=FULL`(Phase 2 复审,由 NORMAL 调整) | NORMAL 下 attempting 登记可能在 spawn 后丢失 → 双投;门控状态丢写 → 违背用户暂停意图。论证见 §2.1 | NORMAL(省 fsync,但引入双投风险,收益每 tick 几毫秒) |
+---
+
+## 11. Phase 4 实施记录(2026-10-27)
+
+- **0002_snapshot_flags.sql**(只增不改):quota_snapshots 新增 `ordinary_usage_allowed` / `spend_control_reached` / `rate_limit_reached_type` / `reset_credits`(JSON)——G6 三证据与 E1/E3 信号需要跨快照比较这些字段,此前仅存 raw(会截断)。Schema 版本 1 → 2。
+- **快照去重口径修正(§8)**:同账户同源同 captured_at 且 **raw 相同**才跳过。仅按时间戳去重会在"同一秒内 tick 与手动 check 数据不同"时静默丢弃新数据,评估用过期快照(Phase 4 实测发现并修复)。
+- **启动清扫(§7)落地**(`scheduling/sweep.py`):integrity → attempting 清扫(→ unknown + NEEDS_HUMAN,reason `swept_attempting`,session_state 无行时 upsert)→ 孤儿计划 expired → 状态自洽(detail 的 failure/plan 引用校验,不一致 → NEEDS_HUMAN db_inconsistent)→ WAL 检查点 + 审计。受限模式:tick 返回 restricted,一切自动动作冻结。
+- **崩溃残留自愈(调度器)**:FAILURE_DETECTED 无计划 → 下 tick 补建计划(游标重建后的重读由 turn 维度去重兜底,§3 不变量之上的第三道)。

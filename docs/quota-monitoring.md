@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | v1.1(Phase 3 实现;bucket_key 决策 D-QM-7 见 §8/§9) |
+| 状态 | v1.2(Phase 4:常驻池/节奏/E4/reset credits 观察落地,见 §9 末尾) |
 | 覆盖需求 | FR-03、FR-04、FR-02-A5/A6/A7 |
 | 关联 | [persistence.md](persistence.md) §3(快照表)、[early-recovery.md](early-recovery.md) |
 
@@ -125,3 +125,5 @@ rollout 文件增量读取:每 tick 每会话(只读尾部增量,游标持久化
 - **§5 判定的实现口径**:任一阻塞窗口不可评估(unknown kind/缺 used_percent)⇒ 账户评估整体按 `unknown`(G6 恒不通过,manual_ack),已知阻塞窗口的 resets_at 仍作为参考时间返回;credits/spend_control 阻塞无 resets_at;`ordinaryUsageAllowed=true` 不解除窗口阻塞(预扣风险),`=false` 且窗口全净时按 unknown 阻塞;空快照(无窗口)在该字段缺失时按 unknown(S-20)、为 true 时不阻塞。
 - **客户端生命周期**:Phase 3 为一次性连接(start→read→stop,CLI `quota --refresh` 每次一进程);常驻子进程、空闲回收与密集刷新节奏(D-QM-5、§6)随 Phase 4 tick 循环落地。`account/rateLimits/updated` 通知当前仅记录(E4 数据就绪),未接订阅逻辑。
 - **未验证接口行为(待 L2/L3)**:真实二进制上的 initialize 握手与 `account/rateLimits/read` 全链路(本阶段仅 Fake + 只读 `--help` 探测);通知推送时机;`rateLimitsByLimitId` 在 0.164.0 生产环境的实际桶集合。
+- **Phase 4 追加(2026-10-27)**:① App Server 常驻子进程池落地(D-QM-5,`scheduling/appserver_pool.py`):按账户惰性启动、跨 tick 复用、失败退避 60→120→300s、空闲 600s 回收;② §6 节奏由调度器实现(regular_probe_interval / intensive_interval / 临近期 not_before-60s 强制刷新 / 手动触发不受限);③ `rateLimitResetCredits` 摘要入解析与 0002 结构化列(E3 观察);④ E4 通知记录于 `QuotaService.last_server_notifications`(按账户,每次刷新重置),method 常量集中 codexif/appserver.py;⑤ 快照去重收紧为同账户同源同 captured_at 且 raw 相同(§8 语义修正,见 persistence §11)。
+

@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 1 定稿 v1.0 |
+| 状态 | v1.1(Phase 4 实现:E1–E4 观察侧 + check 命令落地;投递复用点待 Phase 5) |
 | 覆盖需求 | FR-06 |
 | 关联 | [quota-monitoring.md](quota-monitoring.md)(恢复判定)、[recovery-state-machine.md](recovery-state-machine.md)(守门) |
 
@@ -63,3 +63,10 @@ timeline
 | D-ER-2 | 观察重置券状态而非消费它 | FR-07 红线;用户兑换的效果通过额度数据自然可见 | 工具代兑换(绝对禁止) |
 | D-ER-3 | 密集刷新按账户且限频 60s | 平衡及时性与克制(参考项目等待期 1s 轮询针对队列确认,额度探测我们取稳妥下限) | 1s 级额度轮询(无必要的服务端压力) |
 | D-ER-4 | `resets_at` 只影响刷新节奏,不影响投递资格 | 任务书 FR-06-A4:不依赖固定时长推算恢复 | 到点即视为已恢复(禁止) |
+---
+
+## 7. Phase 4 实施记录(2026-10-27)
+
+- **模块**:`recovery/early.py`(E1 ordinary 翻转 / E2 窗口滚动或跌破 resume_max / E3 reset credits 观察 / E4 服务端通知,全部只读);信号在调度器 `_evaluate_waiting` 内以"失败时刻基线快照 vs 当前最新快照"计算,任一信号或 not_before 到期即触发评估(与到期恢复同一代码路径,D-ER-1)。
+- **E3 数据面**:`rateLimitResetCredits` 摘要(available_count + credits[].status)经 appserver 解析器提取并随 0002 迁移结构化入库;**绝不调用 consume**(T-GUARD-06 全剧本断言)。E4 通知按账户归属(`QuotaService.last_server_notifications`),method 常量集中于 codexif/appserver.py。
+- **`check` 命令**:强制实时刷新(手动触发不受节奏限制)+ 全会话评估,输出逐守门结果;`--no-deliver` 零投递副作用(deliveries 恒空、无 DELIVERING、仅白名单只读方法)。Phase 4 内 check 与调度器同路径,ready=True 时审计 `delivery_ready`(不投递)。

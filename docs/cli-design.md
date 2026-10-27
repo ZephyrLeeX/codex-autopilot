@@ -70,7 +70,7 @@ codex-autopilot add --session <UUID> --name <name> [--project <path>]
 }
 ```
 
-- `list --codex-sessions [--account <name>] [--days 30]`:扫描 Codex Home 展示可注册会话(只读)。**Phase 4(P4-T1)交付,依赖 rollout 解析器**。
+- `list --codex-sessions [--account <name>] [--days 30]`:扫描 Codex Home 展示可注册会话(只读)。**已交付(P4-T1)**:按链尾 UUID 归并分裂链,汇总 起始时间/cwd/行数/最后事件时间,交叉 `sqlite/codex.db` 的 local_thread_catalog(列名跨版本未核实,按候选名探测;无库/不可读按 unknown 展示);`--json` 元素含 registered / in_thread_catalog 标志。
 - `status [name]`:缺省全部;单会话时展示状态机当前态、活跃失败与计划、最近投递与确认、tmux 探测(如有)。
 
 ### quota
