@@ -64,3 +64,89 @@ def store(tmp_path: Path, fake_clock: FakeClock):
     store = Store.open(tmp_path / "state" / "state.db", clock=fake_clock)
     yield store
     store.close()
+
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+@pytest.fixture
+def fixture_path():
+    """fixture 文件定位:fixture_path("jsonl", "torn_tail.jsonl") → Path。"""
+
+    def _resolve(*parts: str) -> Path:
+        return FIXTURES.joinpath(*parts)
+
+    return _resolve
+
+
+@pytest.fixture
+def write_rollout(tmp_path: Path):
+    """在隔离的 Codex Home 中构造 rollout 文件(保持内容原字节,撕裂尾行原样)。"""
+
+    def _write(
+        codex_home: Path,
+        session_uuid: str,
+        content: str,
+        *,
+        ts: str = "2026-01-01T00-00-00",
+        suffix_uuid: str | None = None,
+        archived: bool = False,
+        subpath: str = "2026/01/01",
+    ) -> Path:
+        chain = session_uuid if suffix_uuid is None else f"{session_uuid}_{suffix_uuid}"
+        name = f"rollout-{ts}-{chain}.jsonl"
+        root = "archived_sessions" if archived else "sessions"
+        directory = codex_home / root / subpath
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / name
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    return _write
+
+
+@pytest.fixture
+def fake_appserver_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """指向 Fake app-server 二进制的环境(L1 红线:绝不触真实 codex)。
+
+    返回 (binary_path, scenario_path, log_path);写好 scenario 后调用即可。
+    """
+
+    binary = Path(__file__).resolve().parent / "fakes" / "app_server.py"
+    scenario = tmp_path / "fake-appserver-scenario.json"
+    log = tmp_path / "fake-appserver-log.jsonl"
+    log.write_text("", encoding="utf-8")
+    monkeypatch.setenv("FAKE_APP_SERVER_SCRIPT", str(scenario))
+    monkeypatch.setenv("FAKE_APP_SERVER_LOG", str(log))
+    return binary, scenario, log
+
+
+def write_scenario(scenario_path: Path, **settings) -> None:
+    import json
+
+    defaults = {
+        "initialize_result": {
+            "userAgent": "codex-cli fake (testing)",
+            "platformFamily": "unix",
+            "platformOS": "linux",
+        },
+        "rate_limits_result": {
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "primary": {
+                        "usedPercent": 41,
+                        "resetsAt": 1792583368,
+                        "windowDurationMins": 300,
+                    },
+                    "secondary": {
+                        "usedPercent": 12,
+                        "resetsAt": 1793099965,
+                        "windowDurationMins": 10080,
+                    },
+                }
+            },
+            "ordinaryUsageAllowed": True,
+        },
+    }
+    defaults.update(settings)
+    scenario_path.write_text(json.dumps(defaults), encoding="utf-8")

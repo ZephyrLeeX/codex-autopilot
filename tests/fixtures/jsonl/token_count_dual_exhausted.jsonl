@@ -1,0 +1,2 @@
+{"timestamp":"2026-01-01T00:00:01Z","type":"session_meta","payload":{"id":"01234567-89ab-cdef-0123-456789abcdef","timestamp":1767225601,"cwd":"/tmp/project","originator":"codex_cli_rs","cli_version":"0.0.0","instructions":null}}
+{"timestamp":"2026-01-01T00:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{},"rate_limits":{"primary":{"resets_at":1767243600,"used_percent":99.5,"window_minutes":300},"secondary":{"resets_at":1767657600,"used_percent":100.0,"window_minutes":10080},"rate_limit_reached_type":"rate_limit_reached","plan_type":"team"}}}

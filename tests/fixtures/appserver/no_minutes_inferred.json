@@ -1,0 +1,9 @@
+{
+  "rateLimitsByLimitId": {
+    "codex": {
+      "primary": {"usedPercent": 55, "resetsAt": 1792583368},
+      "secondary": {"usedPercent": 20, "resetsAt": 1793099965}
+    }
+  },
+  "ordinaryUsageAllowed": true
+}

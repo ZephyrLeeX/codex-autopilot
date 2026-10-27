@@ -1,0 +1,13 @@
+{
+  "rateLimitsByLimitId": {
+    "codex": {
+      "primary": {"usedPercent": 12, "resetsAt": 1792583368, "windowDurationMins": 300},
+      "secondary": {"usedPercent": 33, "resetsAt": 1793099965, "windowDurationMins": 10080},
+      "spendControlReached": false,
+      "rateLimitReachedType": "workspace_owner_credits_depleted",
+      "planType": "team",
+      "credits": {"hasCredits": false}
+    }
+  },
+  "ordinaryUsageAllowed": false
+}

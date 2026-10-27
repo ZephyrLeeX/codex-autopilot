@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 2 已完成(P2-T1~T5,2026-10-27;见 §2.1 实施记录) |
+| 状态 | Phase 3 已完成(P3-T1~T4,2026-10-27;见 §2.2 实施记录) |
 | 覆盖需求 | 任务书 §七(阶段划分)、§九(本轮后各模块) |
 | 关联 | 全部设计文档;测试锚点见 [testing.md](testing.md) |
 
@@ -44,14 +44,22 @@ flowchart LR
 - **测试(L1)**:168 通过 / 0 失败(pytest;unit + integration)。覆盖:配置合并优先级与校验、XDG、迁移幂等与双写、WAL/IMMEDIATE/并发、审计仅 INSERT(源码扫描)、CLI add/remove/list 全校验路径与 --json schema、S-17 锁(进程内 + 跨进程子进程,退出码 21)。证据:[evidence/2026-10-27-phase2-l1.md](evidence/2026-10-27-phase2-l1.md)。
 - **遗留(交后续 Phase)**:启动清扫(integrity→attempting 清扫→孤儿计划→自洽检查)随守护进程在 P4-T5/P5-T2 落地(Store 已提供 `integrity_check`/`checkpoint_wal` 原语);`list --codex-sessions` 为 P4-T1;`quota`/`status`/`history` 等命令随对应领域层交付。
 
-### Phase 3 — 额度监控
+### Phase 3 — 额度监控(✅ 已完成 2026-10-27)
 
-| ID | 任务 | 产出 | 依赖 | DoD |
-| --- | --- | --- | --- | --- |
-| P3-T1 | rollout 解析器 | `codexif/rollout.py` + discovery | — | T-PARSE-01/02(完整/撕裂行/分裂链/事件模型;S-23) |
-| P3-T2 | 快照解析与窗口模型 | `quota/`(双命名兼容、分桶、窗口判定、hint) | — | T-QUOTA-02/03/04、T-COMPAT-01(S-02/03/04/25) |
-| P3-T3 | App Server 只读客户端 | `codexif/appserver.py`(NDJSON、握手、白名单) | P2-T3 | Fake app-server 集成:握手/查询/超时/拒绝服务端请求;T-GUARD-02/06 |
-| P3-T4 | 额度服务与融合 | `QuotaService`(按账户缓存、实时/历史融合、stale) | P3-T2,T3 | T-QUOTA-07/08/09(S-08/09/20);`quota` 命令可用(T-CLI-QUOTA) |
+| ID | 任务 | 产出 | 依赖 | DoD | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| P3-T1 | rollout 解析器 | `codexif/rollout.py` + discovery | — | T-PARSE-01/02(完整/撕裂行/分裂链/事件模型;S-23) | ✅ |
+| P3-T2 | 快照解析与窗口模型 | `quota/`(双命名兼容、分桶、窗口判定、hint) | — | T-QUOTA-02/03/04、T-COMPAT-01(S-02/03/04/25) | ✅ |
+| P3-T3 | App Server 只读客户端 | `codexif/appserver.py`(NDJSON、握手、白名单) | P2-T3 | Fake app-server 集成:握手/查询/超时/拒绝服务端请求;T-GUARD-02/06 | ✅ |
+| P3-T4 | 额度服务与融合 | `QuotaService`(按账户缓存、实时/历史融合、stale) | P3-T2,T3 | T-QUOTA-07/08/09(S-08/09/20);`quota` 命令可用(T-CLI-QUOTA) | ✅ |
+
+#### 2.2 Phase 3 实施记录(2026-10-27)
+
+- **交付物**:`src/codex_autopilot/codexif/`(discovery.py 会话文件发现含分裂链/archived、rollout.py 增量解析器(字节游标、撕裂尾行不消费、坏行跳过)、appserver.py 只读客户端)+ `src/codex_autopilot/quota/`(model.py 窗口/快照/阻塞评估、parser.py 双命名兼容解析、service.py 融合服务)+ `store/dao.py` 增 `QuotaSnapshotDao`(快照+窗口入库、同源同 captured_at 去重、raw 64KiB 截断)+ `cli/quota_cmd.py`(`quota [--account] [--refresh] [--source appserver|jsonl|auto]`)。测试侧:`tests/fakes/app_server.py`(可执行伪 app-server,剧本驱动 + 全量收发日志)+ `tests/fixtures/{jsonl,appserver}/`(脱敏 fixture)。
+- **设计决策落地**:`bucket_key = window_minutes 十进制串`(跨源稳定,不含 limit_id——JSONL 无桶名,含桶名会破坏"失败时(JSONL)→恢复证据(appserver)"的 G6 同窗匹配;同分钟多桶在窗口行重复 key、展示层带 limit_id 区分,新增 D-QM-7);耗尽判定集中于 `quota.model.apply_thresholds`/`assess_snapshot`(99 与 100 同路径、90-98 仅 hint、unknown/缺字段恒阻塞、credits/spend_control 无恢复时间、ordinaryUsageAllowed=true 不解除窗口阻塞);空快照 + ordinaryUsageAllowed 缺失 → unknown(S-20);解析层两套键名映射表集中一处(D-QM-1),全 null 桶(实测 premium)整桶丢弃。App Server 客户端:一次性连接(start→read→stop),握手失败兜底回收子进程,服务端反向请求一律 -32601;常驻复用与空闲回收(D-QM-5)留待 Phase 4 tick 循环。
+- **实现细节与设计文档的对齐**:① `codex app-server --stdio` 参数在本机只读 `--help` 探测确认存在(默认传输即 stdio,显式 `--stdio` 与设计一致);② CLI 人读输出按 cli-design §4 用英文(§3 示例为版式示意);③ `quota` 命令在无监控会话时回退查询全部已知账户(只读;首跑自动建立的默认账户在 remove 后仍可查看)。
+- **测试(L1)**:331 通过 / 0 失败(pytest;unit + integration + compatibility;Phase 2 基线 168,本轮 +163)。覆盖:T-PARSE(发现/命名/分裂链/撕裂行/坏行/截断重读/只读断言)、T-QUOTA-01..09(99/100、weekly、双窗口 max-resets、hint、unknown、credits、spend_control、ordinaryUsageAllowed 交互、空快照)、T-COMPAT(fixture 驱动 8 种 appserver 形状 + JSONL camel/snake)、T-GUARD-02/06(白名单静态扫描 + Fake 方法日志断言)、T-CLI-QUOTA(--json schema 锁定、S-08 降级、多账户隔离、红线零副作用)。ruff check/format 全绿;wheel 构建 + 干净 venv 安装冒烟通过。证据:[evidence/2026-10-27-phase3-l1.md](evidence/2026-10-27-phase3-l1.md)。
+- **遗留(交后续 Phase)**:常驻 app-server 子进程与密集刷新节奏(D-QM-5/§6)随 P4-T5 tick 循环;`list --codex-sessions` 使用现成 discovery 属 P4-T1;快照保留期清理(30 天)随守护进程维护任务(P6);开发机本地 codex 版本现为 0.154.0(phase0 证据记录时为 0.162.1),L1 测试不依赖本地二进制,不影响结论。
 
 ### Phase 4 — 多会话调度
 
@@ -103,7 +111,7 @@ flowchart LR
 
 ## 4. 下一阶段建议(任务书 §九-8 的回答)
 
-**Phase 2 已完成(P2-T1..T5 + Fake 时钟 + CI)**。下一步建议:**P3-T1/T2(A 组,纯解析)与 P3-T3(C 组,Fake app-server)并行**——两者零相互依赖,可直接复用 Phase 2 的 Fake 时钟与配置/存储设施;完成后 P3-T4 汇合出 `quota` 命令,建立"注册→监控→展示"的最小闭环。
+**Phase 3 已完成(P3-T1..T4 + Fake app-server + `quota` 命令)**。下一步建议:**P4-T1(会话发现,直接复用 P3 discovery)与 P4-T2(失败检测器,复用 rollout 解析与额度评估)先行**,随后 P4-T3 状态机汇合;P3 交付的 `assess_snapshot`(阻塞评估)与快照入库即为失败检测与 G6 守门的数据基座。
 
 ## 5. 风险登记(摘;完整登记册在 phase0-research.md §5)
 

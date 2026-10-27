@@ -189,6 +189,137 @@ class SessionDao:
         self._store.execute("DELETE FROM sessions WHERE uuid = ?", (canonical,))
 
 
+@dataclass(frozen=True)
+class NewQuotaWindow:
+    """quota_windows 一行(字段与 persistence §3 对齐;领域模型在 quota/model)。"""
+
+    bucket_key: str
+    window_kind: str
+    kind_inferred: bool = False
+    used_percent: float | None = None
+    resets_at: int | None = None
+    window_minutes: int | None = None
+    is_exhausted: bool = False
+
+
+@dataclass(frozen=True)
+class NewQuotaSnapshot:
+    """额度快照写入载荷(source/captured_at/ok 语义见 quota-monitoring §2/§4)。"""
+
+    source: str  # 'appserver' | 'jsonl'
+    captured_at: int
+    ok: bool
+    error: str | None = None
+    raw: str | None = None  # 原始 JSON;调用方负责截断(persistence §8 上限 64KiB)
+    parser_version: str = ""
+    windows: tuple[NewQuotaWindow, ...] = ()
+
+
+RAW_SNAPSHOT_MAX_BYTES = 64 * 1024  # persistence §8:raw 截断上限
+
+
+class QuotaSnapshotDao:
+    """额度快照与窗口明细(persistence §3;去重规则 §8)。"""
+
+    def __init__(self, store: Store):
+        self._store = store
+
+    def insert(
+        self, account_id: int, snapshot: NewQuotaSnapshot, *, ingested_at: int
+    ) -> int | None:
+        """单事务写入快照 + 窗口明细;同账户同源同 captured_at 已存在则跳过(去重)。
+
+        返回新快照 id;去重时返回 None。
+        """
+
+        row = self._store.query_one(
+            "SELECT id FROM quota_snapshots"
+            " WHERE account_id = ? AND source = ? AND captured_at = ?",
+            (account_id, snapshot.source, snapshot.captured_at),
+        )
+        if row is not None:
+            return None
+        raw = snapshot.raw
+        if raw is not None and len(raw.encode("utf-8")) > RAW_SNAPSHOT_MAX_BYTES:
+            raw = raw.encode("utf-8")[:RAW_SNAPSHOT_MAX_BYTES].decode("utf-8", errors="ignore")
+        with self._store.transaction() as conn:
+            cursor = conn.execute(
+                "INSERT INTO quota_snapshots(account_id, source, captured_at, ingested_at, ok,"
+                " error, raw, parser_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    account_id,
+                    snapshot.source,
+                    snapshot.captured_at,
+                    ingested_at,
+                    1 if snapshot.ok else 0,
+                    snapshot.error,
+                    raw,
+                    snapshot.parser_version,
+                ),
+            )
+            snapshot_id = int(cursor.lastrowid)
+            conn.executemany(
+                "INSERT INTO quota_windows(snapshot_id, bucket_key, window_kind, kind_inferred,"
+                " used_percent, resets_at, window_minutes, is_exhausted)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        snapshot_id,
+                        w.bucket_key,
+                        w.window_kind,
+                        1 if w.kind_inferred else 0,
+                        w.used_percent,
+                        w.resets_at,
+                        w.window_minutes,
+                        1 if w.is_exhausted else 0,
+                    )
+                    for w in snapshot.windows
+                ],
+            )
+        return snapshot_id
+
+    def _snapshot_row_with_windows(self, row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        data["ok"] = bool(data["ok"])
+        data["windows"] = [
+            {
+                "bucket_key": w["bucket_key"],
+                "window_kind": w["window_kind"],
+                "kind_inferred": bool(w["kind_inferred"]),
+                "used_percent": w["used_percent"],
+                "resets_at": w["resets_at"],
+                "window_minutes": w["window_minutes"],
+                "is_exhausted": bool(w["is_exhausted"]),
+            }
+            for w in self._store.query(
+                "SELECT * FROM quota_windows WHERE snapshot_id = ? ORDER BY id", (row["id"],)
+            )
+        ]
+        return data
+
+    def latest_ok(self, account_id: int, *, source: str | None = None) -> dict[str, Any] | None:
+        """最新 ok=1 快照(含窗口明细);无则 None。"""
+
+        sql = "SELECT * FROM quota_snapshots WHERE account_id = ? AND ok = 1"
+        params: list[Any] = [account_id]
+        if source is not None:
+            sql += " AND source = ?"
+            params.append(source)
+        sql += " ORDER BY captured_at DESC, id DESC LIMIT 1"
+        row = self._store.query_one(sql, tuple(params))
+        return self._snapshot_row_with_windows(row) if row is not None else None
+
+    def latest_error(self, account_id: int, *, source: str = "appserver") -> dict[str, Any] | None:
+        """最近一次 ok=0 错误快照(展示降级提示用)。"""
+
+        row = self._store.query_one(
+            "SELECT * FROM quota_snapshots WHERE account_id = ? AND source = ? AND ok = 0"
+            " ORDER BY captured_at DESC, id DESC LIMIT 1",
+            (account_id, source),
+        )
+        return dict(row) if row is not None else None
+
+
 class RuntimeFlagsDao:
     """运行期标志(global_pause 等;值以 JSON 存储,persistence §3)。"""
 

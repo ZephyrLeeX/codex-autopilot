@@ -1,0 +1,19 @@
+{
+  "rateLimitsByLimitId": {
+    "codex": {
+      "primary": {"usedPercent": 100, "resetsAt": 1792583368, "windowDurationMins": 300},
+      "secondary": {"usedPercent": 47, "resetsAt": 1793099965, "windowDurationMins": 10080},
+      "spendControlReached": false,
+      "rateLimitReachedType": "rate_limit_reached",
+      "planType": "team"
+    },
+    "legacy": {
+      "primary": {"usedPercent": 3, "resetsAt": 1792583368, "windowDurationMins": 300},
+      "secondary": {"usedPercent": 8, "resetsAt": 1793099965, "windowDurationMins": 10080},
+      "spendControlReached": false,
+      "rateLimitReachedType": null,
+      "planType": "legacy"
+    }
+  },
+  "ordinaryUsageAllowed": false
+}

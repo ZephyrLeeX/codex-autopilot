@@ -1,0 +1,6 @@
+{
+  "rateLimitsByLimitId": null,
+  "rateLimits": null,
+  "ordinaryUsageAllowed": true,
+  "account": {"email": "user@example.com"}
+}

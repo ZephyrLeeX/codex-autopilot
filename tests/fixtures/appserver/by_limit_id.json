@@ -1,0 +1,24 @@
+{
+  "rateLimitsByLimitId": {
+    "codex": {
+      "primary": {"usedPercent": 98, "resetsAt": 1792583368, "windowDurationMins": 300},
+      "secondary": {"usedPercent": 41, "resetsAt": 1793099965, "windowDurationMins": 10080},
+      "spendControlReached": false,
+      "rateLimitReachedType": null,
+      "planType": "team",
+      "credits": {"hasCredits": true}
+    },
+    "premium": {
+      "primary": {"usedPercent": null, "resetsAt": null, "windowDurationMins": null},
+      "secondary": {"usedPercent": null, "resetsAt": null, "windowDurationMins": null},
+      "spendControlReached": false,
+      "rateLimitReachedType": null,
+      "planType": null,
+      "credits": null
+    }
+  },
+  "ordinaryUsageAllowed": true,
+  "account": {"email": "user@example.com"},
+  "accountId": "acct-placeholder",
+  "rateLimitResetCredits": {"availableCount": 0, "credits": []}
+}

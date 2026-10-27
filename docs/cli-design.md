@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | v1.1(Phase 2 实现:add/remove/list、--json schema、env 命名、退出码已固化) |
+| 状态 | v1.2(Phase 3 实现:add/remove/list、quota、--json schema、env 命名、退出码已固化) |
 | 覆盖需求 | FR-10、FR-06-A3、NFR-03 |
 | 关联 | [architecture.md](architecture.md)、[deployment.md](deployment.md) |
 
@@ -77,14 +77,27 @@ codex-autopilot add --session <UUID> --name <name> [--project <path>]
 ```
 codex-autopilot quota [--account <name>] [--refresh] [--source appserver|jsonl|auto] [--json]
 ```
-- 默认展示最近快照(不强制刷新);`--refresh` 触发一次实时查询(App Server)。
-- 人读输出示例:
+- 默认展示最近快照(不强制刷新);`--refresh` 触发一次实时查询(App Server,只读)。账户选择:显式 `--account`(label 或 codex_home 精确匹配)> 有监控会话的账户 > 全部已知账户;空库时对配置默认 Codex Home 建立账户(quota 可独立于注册使用)。
+- 实时查询失败:退出码仍 0(信息性),stderr 警告并降级展示库存数据,来源徽标如实标注历史/非实时(S-08);`--refresh` 与 `--source jsonl` 同给时警告后者忽略。
+- 人读输出(英文,§4;示例为 Phase 3 实际输出):
 ```
-account: default (~/.codex)          来源: appserver(实时)  采集: 2026-10-27 15:02:11 (+08)  新鲜
-  五小时窗口  ██████████ 98%   重置: 2026-10-27 19:41:00 (+08) [window_minutes=300]
-  每周窗口    ████░░░░░░ 41%   重置: 2026-11-02 09:41:00 (+08) [window_minutes=10080]
+account: .codex (/home/user/.codex)
+  source: appserver (realtime)   captured: 2026-10-27 19:38:27 (+0800)   fresh
+  five_hour  ██████████ 98% used (2% left)   resets: 2026-10-21 19:49:28 (+0800) [window_minutes=300]
+  weekly     ████░░░░░░ 41% used (59% left)  resets: 2026-10-27 19:19:25 (+0800) [window_minutes=10080]
 ```
-- `--json` 每窗口含:`account, source, captured_at, stale, window_kind(+inferred), used_percent, resets_at, window_minutes, exhausted`。
+- `--json`(Phase 3 已固化,测试锁定)输出窗口行数组,每行 schema:
+
+```json
+{
+  "account": {"codex_home": "str", "label": "str|null"},
+  "source": "appserver|jsonl", "captured_at": "int(unix sec)", "stale": false,
+  "window_kind": "five_hour|weekly|credits|spend_control|unknown",
+  "inferred": false, "used_percent": 98.0, "resets_at": 1792583368,
+  "window_minutes": 300, "exhausted": true
+}
+```
+无数据的账户在人读模式给出提示行;`--json` 模式下无行(空数组)。
 
 ### history
 ```

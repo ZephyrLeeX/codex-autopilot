@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 1 定稿 v1.0(字段级事实以 phase0-research.md 实证为准) |
+| 状态 | v1.1(Phase 3 实现;bucket_key 决策 D-QM-7 见 §8/§9) |
 | 覆盖需求 | FR-03、FR-04、FR-02-A5/A6/A7 |
 | 关联 | [persistence.md](persistence.md) §3(快照表)、[early-recovery.md](early-recovery.md) |
 
@@ -117,3 +117,11 @@ rollout 文件增量读取:每 tick 每会话(只读尾部增量,游标持久化
 | D-QM-4 | unknown 窗口/未知 kind 恒阻塞 | 无法证实 ⇒ 无法行动(fail-closed) | 乐观放行 |
 | D-QM-5 | App Server 常驻子进程按账户 | 免每 tick 冷启动;故障重启带退避 | 每次 spawn(慢且浪费) |
 | D-QM-6 | JSONL 快照不参与 G6 | 历史数据不能当恢复证据(任务书红线) | 混用最新时间戳(看似合理,实为历史冒充实时) |
+| D-QM-7 | bucket_key = window_minutes 十进制串,不含 limit_id(Phase 3) | key 必须跨源稳定:失败检测证据常来自 JSONL(无桶名),恢复证据必须来自 appserver——含桶名会让同一逻辑窗口在两源得到不同 key,G6 永远无法匹配。代价:同分钟多桶(codex/legacy 各一个 300 窗)在快照内重复 bucket_key,由展示层附带 limit_id 区分;评估取 max(resets_at) 对重复 key 不敏感 | f"{limit_id}:{minutes}"(跨源不可匹配) |
+
+## 9. Phase 3 实施记录(2026-10-27)
+
+- **模块**:`codexif/discovery.py`(文件发现,分裂链 `<A>_<B>` 链尾=自身会话)、`codexif/rollout.py`(增量解析:字节游标、撕裂尾行不消费且下次补读(S-23)、坏行跳过计数、文件缩小自动重读)、`codexif/appserver.py`(NDJSON 只读客户端,白名单 {initialize, account/rateLimits/read},服务端反向请求 -32601,行上限 1MiB,每调用限时默认 25s)、`quota/model.py`(窗口/快照/`apply_thresholds`/`assess_snapshot`)、`quota/parser.py`(双命名兼容,映射表集中一处;全 null 桶整桶丢弃)、`quota/service.py`(按账户采集入库、`latest_view` 含 stale 判定)。
+- **§5 判定的实现口径**:任一阻塞窗口不可评估(unknown kind/缺 used_percent)⇒ 账户评估整体按 `unknown`(G6 恒不通过,manual_ack),已知阻塞窗口的 resets_at 仍作为参考时间返回;credits/spend_control 阻塞无 resets_at;`ordinaryUsageAllowed=true` 不解除窗口阻塞(预扣风险),`=false` 且窗口全净时按 unknown 阻塞;空快照(无窗口)在该字段缺失时按 unknown(S-20)、为 true 时不阻塞。
+- **客户端生命周期**:Phase 3 为一次性连接(start→read→stop,CLI `quota --refresh` 每次一进程);常驻子进程、空闲回收与密集刷新节奏(D-QM-5、§6)随 Phase 4 tick 循环落地。`account/rateLimits/updated` 通知当前仅记录(E4 数据就绪),未接订阅逻辑。
+- **未验证接口行为(待 L2/L3)**:真实二进制上的 initialize 握手与 `account/rateLimits/read` 全链路(本阶段仅 Fake + 只读 `--help` 探测);通知推送时机;`rateLimitsByLimitId` 在 0.164.0 生产环境的实际桶集合。

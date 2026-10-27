@@ -11,6 +11,7 @@ import click
 from codex_autopilot import __version__
 from codex_autopilot.cli.context import EXIT_CONFIG_DB, make_context
 from codex_autopilot.cli.output import emit_error
+from codex_autopilot.cli.quota_cmd import register_commands as register_quota_commands
 from codex_autopilot.cli.sessions import register_commands
 from codex_autopilot.config import ConfigError, load_config
 from codex_autopilot.util.jsonlog import setup_logging
@@ -68,6 +69,7 @@ def main(
 
 
 register_commands(main)
+register_quota_commands(main)
 
 
 if __name__ == "__main__":
