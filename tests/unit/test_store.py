@@ -25,14 +25,18 @@ class TestOpen:
         db = tmp_path / "deep" / "nested" / "state.db"
         with Store.open(db, clock=fake_clock) as store:
             assert db.is_file()
-            assert store.query_one("SELECT COUNT(*) AS c FROM schema_migrations")["c"] == 1
+            assert (
+                store.query_one("SELECT COUNT(*) AS c FROM schema_migrations")["c"] == 2
+            )  # 0001 + 0002(P4)
 
     def test_reopen_idempotent(self, tmp_path: Path, fake_clock):
         db = tmp_path / "state.db"
         with Store.open(db, clock=fake_clock):
             pass
         with Store.open(db, clock=fake_clock) as store:
-            assert store.query_one("SELECT COUNT(*) AS c FROM schema_migrations")["c"] == 1
+            assert (
+                store.query_one("SELECT COUNT(*) AS c FROM schema_migrations")["c"] == 2
+            )  # 0001 + 0002(P4)
 
     def test_wal_mode_active(self, store: Store):
         assert store.query_one("PRAGMA journal_mode")["journal_mode"].lower() == "wal"

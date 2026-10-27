@@ -204,7 +204,11 @@ class NewQuotaWindow:
 
 @dataclass(frozen=True)
 class NewQuotaSnapshot:
-    """额度快照写入载荷(source/captured_at/ok 语义见 quota-monitoring §2/§4)。"""
+    """额度快照写入载荷(source/captured_at/ok 语义见 quota-monitoring §2/§4)。
+
+    判定相关标志(ordinary/spend_control/reached_type/reset_credits)自 0002
+    迁移起结构化入库,供跨快照比较(G6/E1/E3);此前仅存 raw(会截断)。
+    """
 
     source: str  # 'appserver' | 'jsonl'
     captured_at: int
@@ -213,6 +217,10 @@ class NewQuotaSnapshot:
     raw: str | None = None  # 原始 JSON;调用方负责截断(persistence §8 上限 64KiB)
     parser_version: str = ""
     windows: tuple[NewQuotaWindow, ...] = ()
+    ordinary_usage_allowed: bool | None = None
+    spend_control_reached: bool = False
+    rate_limit_reached_type: str | None = None
+    reset_credits_json: str | None = None  # ResetCredits 的 JSON 序列化
 
 
 RAW_SNAPSHOT_MAX_BYTES = 64 * 1024  # persistence §8:raw 截断上限
@@ -227,25 +235,29 @@ class QuotaSnapshotDao:
     def insert(
         self, account_id: int, snapshot: NewQuotaSnapshot, *, ingested_at: int
     ) -> int | None:
-        """单事务写入快照 + 窗口明细;同账户同源同 captured_at 已存在则跳过(去重)。
+        """单事务写入快照 + 窗口明细;去重规则:同账户同源同 captured_at 且
+        **raw 相同**才跳过(persistence §8 控体积)。
 
-        返回新快照 id;去重时返回 None。
+        raw 参与比较是正确性要求:同一秒内的两次查询(tick 与手动 check)
+        数据可能不同,只按时间戳去重会静默丢弃新数据,评估用到过期快照。
         """
 
-        row = self._store.query_one(
-            "SELECT id FROM quota_snapshots"
-            " WHERE account_id = ? AND source = ? AND captured_at = ?",
-            (account_id, snapshot.source, snapshot.captured_at),
-        )
-        if row is not None:
-            return None
         raw = snapshot.raw
         if raw is not None and len(raw.encode("utf-8")) > RAW_SNAPSHOT_MAX_BYTES:
             raw = raw.encode("utf-8")[:RAW_SNAPSHOT_MAX_BYTES].decode("utf-8", errors="ignore")
+        row = self._store.query_one(
+            "SELECT id, raw FROM quota_snapshots"
+            " WHERE account_id = ? AND source = ? AND captured_at = ?",
+            (account_id, snapshot.source, snapshot.captured_at),
+        )
+        if row is not None and row["raw"] == raw:
+            return None
         with self._store.transaction() as conn:
             cursor = conn.execute(
                 "INSERT INTO quota_snapshots(account_id, source, captured_at, ingested_at, ok,"
-                " error, raw, parser_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " error, raw, parser_version, ordinary_usage_allowed, spend_control_reached,"
+                " rate_limit_reached_type, reset_credits)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     account_id,
                     snapshot.source,
@@ -255,6 +267,16 @@ class QuotaSnapshotDao:
                     snapshot.error,
                     raw,
                     snapshot.parser_version,
+                    (
+                        None
+                        if snapshot.ordinary_usage_allowed is None
+                        else 1
+                        if snapshot.ordinary_usage_allowed
+                        else 0
+                    ),
+                    1 if snapshot.spend_control_reached else 0,
+                    snapshot.rate_limit_reached_type,
+                    snapshot.reset_credits_json,
                 ),
             )
             snapshot_id = int(cursor.lastrowid)
@@ -281,6 +303,12 @@ class QuotaSnapshotDao:
     def _snapshot_row_with_windows(self, row: sqlite3.Row) -> dict[str, Any]:
         data = dict(row)
         data["ok"] = bool(data["ok"])
+        data["ordinary_usage_allowed"] = (
+            None
+            if data.get("ordinary_usage_allowed") is None
+            else bool(data["ordinary_usage_allowed"])
+        )
+        data["spend_control_reached"] = bool(data.get("spend_control_reached", 0))
         data["windows"] = [
             {
                 "bucket_key": w["bucket_key"],
@@ -307,6 +335,32 @@ class QuotaSnapshotDao:
             params.append(source)
         sql += " ORDER BY captured_at DESC, id DESC LIMIT 1"
         row = self._store.query_one(sql, tuple(params))
+        return self._snapshot_row_with_windows(row) if row is not None else None
+
+    def latest_ok_before(self, account_id: int, ts: int) -> dict[str, Any] | None:
+        """captured_at ≤ ts 的最新 ok=1 快照(失败时刻基线;提前恢复信号比较用)。"""
+
+        row = self._store.query_one(
+            "SELECT * FROM quota_snapshots WHERE account_id = ? AND ok = 1"
+            " AND captured_at <= ? ORDER BY captured_at DESC, id DESC LIMIT 1",
+            (account_id, ts),
+        )
+        return self._snapshot_row_with_windows(row) if row is not None else None
+
+    def ok_snapshots_since(
+        self, account_id: int, since_ts: int, *, source: str = "appserver"
+    ) -> list[dict[str, Any]]:
+        """captured_at > since_ts 的 ok=1 快照(升序;G6 滚动证据候选,含窗口明细)。"""
+
+        rows = self._store.query(
+            "SELECT * FROM quota_snapshots WHERE account_id = ? AND ok = 1 AND source = ?"
+            " AND captured_at > ? ORDER BY captured_at ASC, id ASC",
+            (account_id, source, since_ts),
+        )
+        return [self._snapshot_row_with_windows(row) for row in rows]
+
+    def snapshot_by_id(self, snapshot_id: int) -> dict[str, Any] | None:
+        row = self._store.query_one("SELECT * FROM quota_snapshots WHERE id = ?", (snapshot_id,))
         return self._snapshot_row_with_windows(row) if row is not None else None
 
     def latest_error(self, account_id: int, *, source: str = "appserver") -> dict[str, Any] | None:

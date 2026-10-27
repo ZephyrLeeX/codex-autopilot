@@ -95,9 +95,9 @@ def main() -> int:
     if sys.argv[1 : 1 + len(ARGV_EXPECTED)] != ARGV_EXPECTED:
         sys.stderr.write(f"fake app-server: expected argv {ARGV_EXPECTED}, got {sys.argv[1:]}\n")
         return 2
-    scenario = _load_scenario()
     logger = _Logger()
     logger.log("env", {"CODEX_HOME": os.environ.get("CODEX_HOME", "")})
+    scenario = _load_scenario()
     if scenario["exit_before_handshake"]:
         sys.stderr.write("fake app-server: exiting before handshake (scenario)\n")
         return int(scenario["exit_code"])
@@ -122,6 +122,8 @@ def main() -> int:
         line = line.strip()
         if not line:
             continue
+        # 每条消息重读剧本:常驻连接(Phase 4 连接池)下测试可中途改剧本
+        scenario = _load_scenario()
         try:
             message = json.loads(line)
         except json.JSONDecodeError:

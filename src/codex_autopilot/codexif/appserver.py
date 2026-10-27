@@ -40,6 +40,9 @@ READ_METHODS = frozenset({"initialize", "account/rateLimits/read"})
 METHOD_INITIALIZE = "initialize"
 METHOD_RATE_LIMITS = "account/rateLimits/read"
 
+# 服务端通知 method 名(观察用,非请求;协议字符串集中本模块,T-GUARD-02)
+NOTIFICATION_RATE_LIMITS_UPDATED = "account/rateLimits/updated"
+
 _METHOD_NOT_FOUND = -32601
 
 
@@ -92,6 +95,12 @@ class AppServerClient:
         self.rejected_server_requests: list[str] = []  # 被拒的服务端反向请求 method 名
 
     # -- 生命周期 ---------------------------------------------------------
+
+    @property
+    def usable(self) -> bool:
+        """已握手且未标记死亡(常驻复用判定,quota-monitoring §4/D-QM-5)。"""
+
+        return self._started and not self._dead
 
     def start(self) -> None:
         """spawn 子进程并完成 initialize 握手。失败抛 AppServerLaunchError。"""

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import sqlite3
@@ -34,6 +35,7 @@ from codex_autopilot.quota.model import (
     QuotaSnapshot,
     QuotaThresholds,
     QuotaWindow,
+    ResetCredits,
     assess_snapshot,
 )
 from codex_autopilot.quota.parser import parse_appserver_response, parse_jsonl_rate_limits
@@ -87,6 +89,8 @@ class QuotaService:
             hint_min_pct=config.quota.hint_min_pct,
         )
         self._client_factory = client_factory or _default_client_factory
+        # 最近一次 refresh_appserver 期间收到的服务端通知(E4 信号;每次调用重置)
+        self.last_server_notifications: list[dict[str, Any]] = []
 
     # -- 账户 -------------------------------------------------------------
 
@@ -115,15 +119,29 @@ class QuotaService:
     # -- 采集:App Server(实时) -----------------------------------------
 
     def refresh_appserver(self, account: sqlite3.Row, *, actor: str = "daemon") -> QuotaSnapshot:
-        """对该账户执行一次实时查询;结果(含失败)落库并审计,返回快照。"""
+        """对该账户执行一次实时查询;结果(含失败)落库并审计,返回快照。
+
+        最近一次查询期间收到的服务端通知(含额度更新通知,即 E4 信号,
+        method 常量见 codexif.appserver)记录在 `self.last_server_notifications`
+        (每次调用重置,有界)。
+        """
 
         now = self._clock.epoch()
         codex_home = Path(account["codex_home"])
-        client = self._client_factory(self._config.codex_binary, codex_home)
         raw_result: dict[str, Any] | None = None
+        self.last_server_notifications = []
         try:
+            # 工厂在 try 内:池启动失败(AppServerLaunchError)同样收敛为
+            # ok=0 错误快照(S-08),不中断调用方
+            client = self._client_factory(self._config.codex_binary, codex_home)
             with client:
                 raw_result = client.read_rate_limits()
+            self.last_server_notifications = [
+                notification
+                for notification in getattr(client, "notifications", [])
+                if isinstance(notification, dict)
+            ]
+            del self.last_server_notifications[:-100]
             snapshot = parse_appserver_response(
                 raw_result, thresholds=self._thresholds, captured_at=now
             )
@@ -153,6 +171,17 @@ class QuotaService:
         return snapshot
 
     # -- 采集:rollout JSONL(历史) --------------------------------------
+
+    def ingest_jsonl_sample(
+        self, account_id: int, payload: dict[str, Any], *, captured_at: int
+    ) -> QuotaSnapshot:
+        """单个 token_count 样本入库(调度器 tick 路径;检测器增量读取的产物)。"""
+
+        snapshot = parse_jsonl_rate_limits(
+            payload, thresholds=self._thresholds, captured_at=captured_at
+        )
+        self._persist(account_id, snapshot, raw=json.dumps(payload, ensure_ascii=False))
+        return snapshot
 
     def ingest_jsonl(self, account: sqlite3.Row) -> QuotaSnapshot | None:
         """账户下全部注册会话的 rollout 链增量解析,每会话最新样本入库。
@@ -255,6 +284,14 @@ class QuotaService:
             error=snapshot.error,
             raw=raw,
             parser_version=snapshot.parser_version,
+            ordinary_usage_allowed=snapshot.ordinary_usage_allowed,
+            spend_control_reached=snapshot.spend_control_reached,
+            rate_limit_reached_type=snapshot.rate_limit_reached_type,
+            reset_credits_json=(
+                json.dumps(dataclasses.asdict(snapshot.reset_credits))
+                if snapshot.reset_credits is not None
+                else None
+            ),
             windows=tuple(
                 NewQuotaWindow(
                     bucket_key=w.bucket_key,
@@ -273,6 +310,16 @@ class QuotaService:
     def _to_domain_snapshot(self, row: dict[str, Any]) -> QuotaSnapshot:
         """DAO 行 → 领域快照(评估复用;limit_id 不入库存,评估不需要)。"""
 
+        reset_credits = None
+        if row.get("reset_credits"):
+            try:
+                data = json.loads(row["reset_credits"])
+                reset_credits = ResetCredits(
+                    available_count=data.get("available_count"),
+                    statuses=tuple(data.get("statuses", ())),
+                )
+            except (TypeError, ValueError):  # 坏 JSON → None(观察字段,不参与阻塞判定)
+                reset_credits = None
         return QuotaSnapshot(
             source=row["source"],
             captured_at=row["captured_at"],
@@ -290,4 +337,8 @@ class QuotaService:
                 )
                 for w in row["windows"]
             ),
+            ordinary_usage_allowed=row.get("ordinary_usage_allowed"),
+            spend_control_reached=row.get("spend_control_reached", False),
+            rate_limit_reached_type=row.get("rate_limit_reached_type"),
+            reset_credits=reset_credits,
         )

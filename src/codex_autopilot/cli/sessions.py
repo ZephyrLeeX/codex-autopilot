@@ -1,7 +1,7 @@
 """会话注册命令:add / remove / list(cli-design.md §3,P2-T4)。
 
-`list --codex-sessions`(扫描 Codex Home 发现可注册会话)属 Phase 4(P4-T1),
-依赖 rollout 解析器,本阶段不实现。
+`list --codex-sessions`(P4-T1):只读扫描 Codex Home 汇总可注册会话,
+含分裂链归并与 local_thread_catalog 交叉(session-management §6)。
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ import click
 from codex_autopilot.cli.context import EXIT_ERROR, EXIT_USAGE, CliContext, CliError
 from codex_autopilot.cli.errors import handle_cli_errors
 from codex_autopilot.cli.output import Output, format_ts
+from codex_autopilot.codexif.catalog import summarize_sessions, thread_catalog_uuids
+from codex_autopilot.quota.service import QuotaService
 from codex_autopilot.store.dao import AccountDao, NewSession, SessionDao
 from codex_autopilot.store.errors import ConstraintViolationError
 from codex_autopilot.util.audit import write_audit
@@ -271,11 +273,38 @@ def remove(ctx: click.Context, name_or_uuid: str, purge: bool, yes: bool) -> Non
 
 
 @click.command(name="list")
+@click.option(
+    "--codex-sessions",
+    "codex_sessions",
+    is_flag=True,
+    help="Scan Codex Home for registrable sessions (read-only; P4-T1).",
+)
+@click.option(
+    "--account",
+    "account_arg",
+    default=None,
+    help="With --codex-sessions: restrict scan to one account (label or codex_home path).",
+)
+@click.option(
+    "--days",
+    type=int,
+    default=30,
+    show_default=True,
+    help="With --codex-sessions: only sessions started within N days.",
+)
 @handle_cli_errors
 @click.pass_context
-def list_cmd(ctx: click.Context) -> None:
+def list_cmd(
+    ctx: click.Context,
+    codex_sessions: bool,
+    account_arg: str | None,
+    days: int,
+) -> None:
     """List registered sessions (columns per cli-design.md §3)."""
     obj: CliContext = ctx.obj
+    if codex_sessions:
+        _list_codex_sessions(obj, account_arg, days)
+        return
     rows = SessionDao(obj.store()).list_active()
     payload = [
         {
@@ -323,3 +352,99 @@ def register_commands(group: click.Group) -> None:
     group.add_command(add)
     group.add_command(remove)
     group.add_command(list_cmd)
+
+
+# -- list --codex-sessions(P4-T1) -----------------------------------------
+
+
+def _scan_accounts(obj: CliContext, account_arg: str | None) -> list[Any]:
+    """选择要扫描的账户:显式 --account > 有监控会话的账户 > 配置默认。"""
+
+    service = QuotaService(obj.store(), obj.config, obj.clock)
+    if account_arg is not None:
+        row = service.resolve_account(account_arg)
+        if row is None:
+            raise CliError(
+                f"account not found: {account_arg} (match by label or codex_home)",
+                exit_code=EXIT_ERROR,
+                code="account_not_found",
+            )
+        return [row]
+    accounts = service.monitored_accounts()
+    if accounts:
+        return accounts
+    return service.all_accounts() or [
+        AccountDao(obj.store()).get_or_create(
+            os.path.realpath(obj.config.codex_home), label=None, now=obj.clock.epoch()
+        )
+    ]
+
+
+def _list_codex_sessions(obj: CliContext, account_arg: str | None, days: int) -> None:
+    if days < 1:
+        raise _usage_error("--days must be >= 1", code="invalid_days")
+    out = Output(json_mode=obj.json_output)
+    accounts = _scan_accounts(obj, account_arg)
+    registered = {
+        row["uuid"]
+        for row in obj.store().query("SELECT uuid FROM sessions WHERE deleted_at IS NULL")
+    }
+
+    payload: list[dict[str, Any]] = []
+    for account in accounts:
+        home = Path(account["codex_home"])
+        catalog = thread_catalog_uuids(home)
+        if catalog is None and home.joinpath("sqlite", "codex.db").exists():
+            out.warn(f"thread catalog present but unreadable for {home}")
+        for summary in summarize_sessions(home, days=days):
+            payload.append(
+                {
+                    "account": {
+                        "codex_home": account["codex_home"],
+                        "label": account["label"],
+                    },
+                    "uuid": summary.uuid,
+                    "started_at": summary.started_at,
+                    "last_event_at": summary.last_event_at,
+                    "line_count": summary.line_count,
+                    "cwd": summary.cwd,
+                    "chain": list(summary.chain),
+                    "file_count": summary.file_count,
+                    "archived": summary.archived,
+                    "registered": summary.uuid in registered,
+                    "in_thread_catalog": (summary.uuid in catalog if catalog is not None else None),
+                }
+            )
+
+    if obj.json_output:
+        out.result(payload, "")
+        return
+    if not payload:
+        click.echo(
+            "no codex sessions found (scan window: "
+            f"{days} days; check codex_home paths or increase --days)"
+        )
+        return
+    header = ("UUID", "STARTED", "LAST_EVENT", "LINES", "ARCH", "REG", "CATALOG", "CWD")
+    table: list[tuple[str, ...]] = [header]
+    for row in payload:
+        cwd = row["cwd"] or "-"
+        if len(cwd) > 36:
+            cwd = cwd[:33] + "..."
+        table.append(
+            (
+                row["uuid"],
+                format_ts(row["started_at"]),
+                format_ts(row["last_event_at"]),
+                str(row["line_count"]),
+                "yes" if row["archived"] else "-",
+                "yes" if row["registered"] else "-",
+                {True: "yes", False: "-", None: "n/a"}[row["in_thread_catalog"]],
+                cwd,
+            )
+        )
+    widths = [max(len(line[col]) for line in table) for col in range(len(header))]
+    for index, line in enumerate(table):
+        click.echo("  ".join(line[col].ljust(widths[col]) for col in range(len(header))))
+        if index == 0:
+            click.echo("  ".join("-" * width for width in widths))

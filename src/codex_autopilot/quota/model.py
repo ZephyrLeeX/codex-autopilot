@@ -70,6 +70,18 @@ class QuotaWindow:
 
 
 @dataclass(frozen=True)
+class ResetCredits:
+    """`rateLimitResetCredits` 摘要(仅观察;early-recovery E3 信号)。
+
+    官方 schema:ResetCreditStatus = available/redeeming/redeemed/unknown。
+    我们只读该字段推断"用户已手动兑换",绝不调用 consume(FR-07 红线)。
+    """
+
+    available_count: int | None = None
+    statuses: tuple[str, ...] = ()  # credits[].status(按出现顺序)
+
+
+@dataclass(frozen=True)
 class QuotaSnapshot:
     """某账户某时刻的额度状态(来源:appserver 实时 / jsonl 历史)。"""
 
@@ -82,6 +94,7 @@ class QuotaSnapshot:
     plan_type: str | None = None  # 展示用,不参与判定
     rate_limit_reached_type: str | None = None
     spend_control_reached: bool = False
+    reset_credits: ResetCredits | None = None  # appserver 顶级观察字段(E3;可 None)
     account_email: str | None = None  # 展示用(脱敏与否由输出层决定,不主动打印)
     parser_version: str = PARSER_VERSION
 

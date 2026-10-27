@@ -25,6 +25,7 @@ from codex_autopilot.quota.model import (
     QuotaSnapshot,
     QuotaThresholds,
     QuotaWindow,
+    ResetCredits,
     apply_thresholds,
     make_bucket_key,
     resolve_window_kind,
@@ -134,6 +135,25 @@ def _parse_rate_limits_dict(
     return windows, canon
 
 
+def _parse_reset_credits(raw: Any) -> ResetCredits | None:
+    """`rateLimitResetCredits` 摘要(early-recovery E3;形状坏 → None,不影响主解析)。"""
+
+    if not isinstance(raw, Mapping):
+        return None
+    count = raw.get("availableCount")
+    statuses = [
+        str(credit["status"])
+        for credit in raw.get("credits", [])
+        if isinstance(credit, Mapping) and isinstance(credit.get("status"), str)
+    ]
+    if count is None and not statuses:
+        return None
+    return ResetCredits(
+        available_count=count if isinstance(count, int) and not isinstance(count, bool) else None,
+        statuses=tuple(statuses),
+    )
+
+
 def parse_appserver_response(
     response: Mapping[str, Any] | None,
     *,
@@ -232,6 +252,7 @@ def parse_appserver_response(
             plan_type=plan_type,
             rate_limit_reached_type=reached_type,
             spend_control_reached=spend_control,
+            reset_credits=_parse_reset_credits(response.get("rateLimitResetCredits")),
             account_email=email,
             parser_version=PARSER_VERSION,
         )

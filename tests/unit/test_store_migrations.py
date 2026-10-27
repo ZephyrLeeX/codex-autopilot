@@ -50,20 +50,35 @@ def _tables(conn: sqlite3.Connection) -> set[str]:
 class TestApply:
     def test_fresh_apply_creates_all_tables(self, conn, migrations):
         applied = m.apply_migrations(conn, migrations, now=1000)
-        assert applied == [1]
+        assert applied == [1, 2]
         assert _tables(conn) == EXPECTED_TABLES
 
     def test_dual_write_user_version_and_table(self, conn, migrations):
         m.apply_migrations(conn, migrations, now=1000)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
         assert [
             tuple(r) for r in conn.execute("SELECT version, applied_at FROM schema_migrations")
-        ] == [(1, 1000)]
+        ] == [(1, 1000), (2, 1000)]
 
     def test_reopen_is_idempotent(self, conn, migrations):
-        assert m.apply_migrations(conn, migrations, now=1000) == [1]
+        assert m.apply_migrations(conn, migrations, now=1000) == [1, 2]
         assert m.apply_migrations(conn, migrations, now=2000) == []
-        assert [tuple(r) for r in conn.execute("SELECT version FROM schema_migrations")] == [(1,)]
+        assert [tuple(r) for r in conn.execute("SELECT version FROM schema_migrations")] == [
+            (1,),
+            (2,),
+        ]
+
+    def test_0002_adds_snapshot_flag_columns(self, conn, migrations):
+        """P4 迁移:快照判定字段结构化(G6/E1/E3 跨快照比较的数据基座)。"""
+
+        m.apply_migrations(conn, migrations, now=1000)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(quota_snapshots)")}
+        assert {
+            "ordinary_usage_allowed",
+            "spend_control_reached",
+            "rate_limit_reached_type",
+            "reset_credits",
+        } <= columns
 
     def test_half_migrated_rejected(self, conn, migrations):
         # 表内有版本记录但 user_version 未写(模拟半迁移)

@@ -41,6 +41,8 @@ BLACKLISTED_METHOD_PATTERNS = [
 ]
 
 EXPECTED_WHITELIST = {"initialize", "account/rateLimits/read"}
+# 服务端通知 method 常量(P4:E4 信号观察;非请求,不发任何东西)
+EXPECTED_NOTIFICATIONS = {"account/rateLimits/updated"}
 
 APPSERVER_SRC = (SRC / "codex_autopilot" / "codexif" / "appserver.py").read_text(encoding="utf-8")
 
@@ -85,9 +87,19 @@ class TestWhitelistShape:
 
         appserver = APPSERVER_SRC
         assert not re.search(r"def call(?:_method)?\s*\(", appserver)
-        # 命名空间方法字符串(account/*、thread/*)只允许出现在客户端模块
+        # 命名空间方法字符串(account/*、thread/*)只允许出现在客户端模块:
+        # 请求白名单 + 通知观察常量(P4,E4;不构成请求)
         string_methods = set(re.findall(r'"((?:account|thread)/[A-Za-z/]+)"', appserver))
-        assert string_methods <= EXPECTED_WHITELIST
+        assert string_methods <= EXPECTED_WHITELIST | EXPECTED_NOTIFICATIONS
+        # 请求构造仍然只可能来自白名单(通知常量不得进入 _send_request)
+        request_literals = {
+            re.sub(r"\s+", "", found)
+            for found in re.findall(r"_send_request\(\s*(?:METHOD_\w+|\"[^\"]+\")", appserver)
+        }
+        assert request_literals <= {
+            "_send_request(METHOD_INITIALIZE",
+            "_send_request(METHOD_RATE_LIMITS",
+        }, f"unexpected request construction: {request_literals}"
 
     def test_send_notification_only_initialized(self):
         appserver = APPSERVER_SRC
