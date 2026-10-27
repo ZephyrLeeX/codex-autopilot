@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 1 定稿 v1.0(Phase 0/1 已完成) |
+| 状态 | Phase 2 已完成(P2-T1~T5,2026-10-27;见 §2.1 实施记录) |
 | 覆盖需求 | 任务书 §七(阶段划分)、§九(本轮后各模块) |
 | 关联 | 全部设计文档;测试锚点见 [testing.md](testing.md) |
 
@@ -26,15 +26,23 @@ flowchart LR
 
 ## 2. 任务分解(编号规则:PHn-Tk;依赖列出直接前置)
 
-### Phase 2 — 核心基础设施
+### Phase 2 — 核心基础设施(✅ 已完成 2026-10-27)
 
-| ID | 任务 | 产出 | 依赖 | 完成标准(DoD) |
-| --- | --- | --- | --- | --- |
-| P2-T1 | 配置系统 | `config/`(TOML+env+CLI 合并、默认值、校验、示例) | — | 单测覆盖合并优先级与非法值拒绝;examples/config.toml 与代码一致(T-CLI-01) |
-| P2-T2 | Store 与迁移框架 | `store/`(连接钩子、0001 迁移、DAO 基类、审计写入) | — | T-STORE 基础:迁移幂等、WAL/IMMEDIATE 行为、审计仅 INSERT(T-STORE-03) |
-| P2-T3 | 日志与 Clock | `util/`(logging JSON 格式、TimeSource) | — | 假时钟单测 |
-| P2-T4 | CLI 骨架 | add/remove/list(注册部分) | P2-T1,T2 | T-CLI-ADD-*:UUID/路径/唯一名校验;--json 输出 schema 固化 |
-| P2-T5 | 单实例锁 | flock 封装 | P2-T2 | T-SCHED-02(S-17) |
+| ID | 任务 | 产出 | 依赖 | 完成标准(DoD) | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| P2-T1 | 配置系统 | `config/`(TOML+env+CLI 合并、默认值、校验、示例) | — | 单测覆盖合并优先级与非法值拒绝;examples/config.toml 与代码一致(T-CLI-01) | ✅ |
+| P2-T2 | Store 与迁移框架 | `store/`(连接钩子、0001 迁移、DAO 基类、审计写入) | — | T-STORE 基础:迁移幂等、WAL/IMMEDIATE 行为、审计仅 INSERT(T-STORE-03) | ✅(PRAGMA 复审:见下) |
+| P2-T3 | 日志与 Clock | `util/`(logging JSON 格式、TimeSource) | — | 假时钟单测 | ✅ |
+| P2-T4 | CLI 骨架 | add/remove/list(注册部分) | P2-T1,T2 | T-CLI-ADD-*:UUID/路径/唯一名校验;--json 输出 schema 固化 | ✅ |
+| P2-T5 | 单实例锁 | flock 封装 | P2-T2 | T-SCHED-02(S-17) | ✅ |
+
+#### 2.1 Phase 2 实施记录(2026-10-27)
+
+- **交付物**:`src/codex_autopilot/{config,store,util,scheduling,cli}/` + `store/migrations/0001_init.sql`(Schema v1 全量)+ `tests/fakes/clock.py`(Fake 体系起点)+ `.github/workflows/ci.yml`(Python 3.11/3.12/3.13 矩阵 + lint + wheel 冒烟)。
+- **架构调整(安全复审)**:`synchronous=NORMAL → FULL`。NORMAL 下 `attempting` 登记可能在 spawn 后、fsync 前丢失 → 掉电后守门重读无记录 → 同一失败双投(违反 FR-05-A5/FR-08-A7);且门控状态(global_pause/enabled)丢写会违背用户暂停意图。FULL 每次 COMMIT fsync,写负载每 tick 数条,代价可忽略;不暴露为配置项。完整论证:persistence.md §2.1(D-PER-7)。
+- **实现细节与设计文档的两处对齐**:① `schema_migrations` 表由迁移 runner bootstrap(persistence §6 本就如此描述),不在 0001 迁移内容内;② 全局选项(`--json` 等)必须置于子命令之前,之后为用法错误(cli-design §1 已注明)。
+- **测试(L1)**:168 通过 / 0 失败(pytest;unit + integration)。覆盖:配置合并优先级与校验、XDG、迁移幂等与双写、WAL/IMMEDIATE/并发、审计仅 INSERT(源码扫描)、CLI add/remove/list 全校验路径与 --json schema、S-17 锁(进程内 + 跨进程子进程,退出码 21)。证据:[evidence/2026-10-27-phase2-l1.md](evidence/2026-10-27-phase2-l1.md)。
+- **遗留(交后续 Phase)**:启动清扫(integrity→attempting 清扫→孤儿计划→自洽检查)随守护进程在 P4-T5/P5-T2 落地(Store 已提供 `integrity_check`/`checkpoint_wal` 原语);`list --codex-sessions` 为 P4-T1;`quota`/`status`/`history` 等命令随对应领域层交付。
 
 ### Phase 3 — 额度监控
 
@@ -95,7 +103,7 @@ flowchart LR
 
 ## 4. 下一阶段建议(任务书 §九-8 的回答)
 
-**Phase 2 全部(P2-T1..T5)+ Fake 体系骨架**。理由:零外部依赖、解锁所有后续任务;且能立刻让 `add/list/quota(占位)` CLI 跑通,建立端到端反馈环。Phase 2 完成后,**P3-T1/T2(A 组)与 P3-T3(C 组)可并行**。
+**Phase 2 已完成(P2-T1..T5 + Fake 时钟 + CI)**。下一步建议:**P3-T1/T2(A 组,纯解析)与 P3-T3(C 组,Fake app-server)并行**——两者零相互依赖,可直接复用 Phase 2 的 Fake 时钟与配置/存储设施;完成后 P3-T4 汇合出 `quota` 命令,建立"注册→监控→展示"的最小闭环。
 
 ## 5. 风险登记(摘;完整登记册在 phase0-research.md §5)
 

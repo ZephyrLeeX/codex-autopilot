@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 1 定稿 v1.0 |
+| 状态 | v1.1(Phase 2 实现:add/remove/list、--json schema、env 命名、退出码已固化) |
 | 覆盖需求 | FR-10、FR-06-A3、NFR-03 |
 | 关联 | [architecture.md](architecture.md)、[deployment.md](deployment.md) |
 
@@ -11,9 +11,9 @@
 ## 1. 总则
 
 - 框架:click(唯一运行时第三方依赖)。子命令即模块边界,`cli/` 层只做参数解析与输出格式化,业务逻辑全部在领域层(可测)。
-- 全局选项(所有命令前):`--config <path>`(指定配置文件)、`--state-dir <path>`(覆盖数据目录)、`--json`(机器可读输出)、`--verbose/--quiet`、`--no-color`。
+- 全局选项(所有命令**之前**给出):`--config <path>`(指定配置文件)、`--state-dir <path>`(覆盖数据目录)、`--json`(机器可读输出)、`--verbose/--quiet`、`--no-color`。全局选项置于子命令之后视为用法错误(退出码 2)。
 - 名字参数统一既可传 `name` 也可传完整 UUID(`resolve_session()` 二选一;**绝不**做前缀模糊匹配——错投风险,见 queue-safety.md G5)。
-- 机器可读输出契约:`--json` 时 stdout 仅一行 JSON(或 JSONL,流式命令),人类可读信息走 stderr;退出码见 §6。
+- 机器可读输出契约:`--json` 时 stdout 仅一行 JSON(或 JSONL,流式命令),人类可读信息走 stderr;退出码见 §6。失败时 stdout 为单行 `{"error": {"code", "message"}}`,stderr 同步人读信息。
 
 ## 2. 命令一览
 
@@ -42,11 +42,35 @@ codex-autopilot add --session <UUID> --name <name> [--project <path>]
                     [--auto-resume] [--notify-policy <json|@file>]
                     [--allow-missing-project] [--json]
 ```
-校验规则见 session-management.md §2。默认 `--project` 取当前目录。`--auto-resume` 必须显式给出(默认关)。
+校验规则见 session-management.md §2。默认 `--project` 取当前目录。`--auto-resume` 必须显式给出(默认关)。另有 `--description`(可选显示名,session-management §2.3)。
+
+**`--json` 输出 schema(Phase 2 已固化,测试锁定)**:
+
+```json
+{
+  "name": "str", "uuid": "str", "description": "str|null",
+  "project_path": "str(absolute)", "codex_home": "str(realpath)",
+  "account_label": "str|null", "enabled": true, "auto_resume": false,
+  "tmux_session": "str|null", "check_interval": "int|null",
+  "created_at": "int(unix sec)"
+}
+```
 
 ### remove / list / status
-- `remove <name> [--purge --yes]`。
-- `list`:表格列 `NAME UUID ACCOUNT ENABLED AUTO_RESUME STATE LAST_EVENT`;`--json` 输出数组。`list --codex-sessions [--account <name>] [--days 30]`:扫描 Codex Home 展示可注册会话(只读)。
+- `remove <name> [--purge --yes]`;`--json` 输出 `{"name", "uuid", "purged"}`。`--purge` 需 `--yes`(缺省退出码 2)。
+- `list`:表格列 `NAME UUID ACCOUNT ENABLED AUTO_RESUME STATE LAST_EVENT`;`--json` 输出数组,元素 schema 固化:
+
+```json
+{
+  "name": "str", "uuid": "str",
+  "account": {"codex_home": "str", "label": "str|null"},
+  "enabled": true, "auto_resume": false,
+  "state": "str|null", "state_since": "int|null",
+  "last_event_at": "int|null", "created_at": "int"
+}
+```
+
+- `list --codex-sessions [--account <name>] [--days 30]`:扫描 Codex Home 展示可注册会话(只读)。**Phase 4(P4-T1)交付,依赖 rollout 解析器**。
 - `status [name]`:缺省全部;单会话时展示状态机当前态、活跃失败与计划、最近投递与确认、tmux 探测(如有)。
 
 ### quota
@@ -101,7 +125,13 @@ codex-autopilot check [--session <name>] [--no-deliver] [--json]
 
 ## 5. 配置文件
 
-位置:`$XDG_CONFIG_HOME/codex-autopilot/config.toml`(示例见 [examples/config.toml](../examples/config.toml))。段落:`[paths]`(state_dir 等)、`[scheduler]`(间隔)、`[quota]`(阈值/新鲜度 TTL/查询频率)、`[recovery]`(确认方式与超时、模板全局默认)、`[notify]`/`[notify.smtp]`、`[codex]`(二进制路径、默认 codex_home)。环境变量 `CODEX_AUTOPILOT_*` 覆盖同名配置(优先级:CLI 参数 > 环境变量 > 配置文件 > 内置默认)。
+位置:`$XDG_CONFIG_HOME/codex-autopilot/config.toml`(示例见 [examples/config.toml](../examples/config.toml);XDG 变量须为绝对路径,相对值拒绝)。段落:`[paths]`(state_dir 等)、`[scheduler]`(间隔)、`[quota]`(阈值/新鲜度 TTL/查询频率)、`[recovery]`(确认方式与超时、模板全局默认)、`[notify]`/`[notify.smtp]`、`[codex]`(二进制路径、默认 codex_home)。
+
+优先级(高到低):CLI 参数 > 环境变量 > 配置文件 > 内置默认值。
+
+**环境变量命名(Phase 2 固化)**:`CODEX_AUTOPILOT_<SECTION>__<KEY>`,段路径用双下划线连接,键名与 TOML 键一致(如 `CODEX_AUTOPILOT_PATHS__STATE_DIR`、`CODEX_AUTOPILOT_CODEX__CODEX_HOME`、`CODEX_AUTOPILOT_NOTIFY__SMTP__HOST`)。布尔取 `true/false/1/0/yes/no/on/off`;列表为逗号分隔。未知键在 TOML 中一律拒绝(防拼写错误静默弱化安全参数);未知环境变量忽略(如 `CODEX_AUTOPILOT_SMTP_PASSWORD` 是凭据变量而非配置键)。
+
+**Phase 2 校验要点**:阈值区间(quota.exhausted_threshold_pct ∈ [95,100]、hint_min_pct ∈ [90,98]、resume_max_pct < exhausted_threshold_pct)、SMTP 启用时必填字段与 password_env/password_cmd 二选一、路径必须可解析为绝对路径(支持 `~`)。校验失败 → 退出码 20。
 
 ## 6. 退出码
 

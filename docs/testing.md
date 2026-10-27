@@ -38,6 +38,7 @@ tests/
 - **注入点即测试点**:Scheduler/StateMachine/DeliveryManager 只依赖端口接口,测试注入 Fakes(architecture.md §1 的结构保证)。
 - 假时钟:`TimeSource` 注入,所有超时/节奏/新鲜度判定可确定性快进;DST/跨时区用例注入相应本地时区(NFR-04)。
 - Fake codex CLI 通过 `argv[0]` 指向测试目录的脚本实现;配置 `codex.binary_path` 本就支持覆盖(生产亦然)。
+- **Phase 2 已交付**:`tests/fakes/clock.py`(FakeClock)、`tests/conftest.py`(HOME/XDG 隔离 autouse fixture,L1 红线的结构保证)、`tests/unit/test_source_scan.py`(T-GUARD-04 部分与 T-STORE-03 审计仅 INSERT)。Fake codex CLI 与 Fake app-server 随 C 组任务(P3-T3/P5-T1)交付。
 
 ## 3. 场景矩阵(S↔测试 ID)
 
@@ -114,7 +115,7 @@ fixture 驱动的形状测试,覆盖已知版本差异(证据见 phase0-research
 
 ## 7. CI
 
-GitHub Actions:矩阵 Python 3.11/3.12/3.13 × 单元+集成;L1 容器矩阵(debian:stable、ubuntu:latest、archlinux:base)跑安装冒烟(pipx install + doctor --json 退出码);T-GUARD/T-COMPAT 全量。覆盖率门槛建议:领域层(quota/recovery/scheduling)≥90%,端口层 ≥70%。
+GitHub Actions(`.github/workflows/ci.yml`,Phase 2 起生效):矩阵 Python 3.11/3.12/3.13 × 单元+集成;ruff lint + format;wheel 构建 + 安装冒烟。L1 容器矩阵(debian:stable、ubuntu:latest、archlinux:base)跑安装冒烟(pipx install + doctor --json 退出码)随 P6-T4 落地;T-GUARD/T-COMPAT 全量。覆盖率门槛建议:领域层(quota/recovery/scheduling)≥90%,端口层 ≥70%。
 
 ## 8. 证据记录约定
 

@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 1 定稿 v1.0 |
+| 状态 | v1.1(Phase 2 实现;§2 PRAGMA 经安全复审修订,见 §2.1 / D-PER-7) |
 | 覆盖需求 | FR-09、FR-08-A7、NFR-06 |
 | 关联 | [session-management.md](session-management.md)(实体语义)、[queue-safety.md](queue-safety.md)(投递协议) |
 
@@ -26,11 +26,20 @@
 - 每进程一个连接(守护进程、CLI 各自);`check_same_thread=False` 仅在单线程事件循环内使用(见 architecture.md §4)。
 - PRAGMA(打开时设置,存入连接钩子):
   - `journal_mode=WAL` —— 读写不互斥;
-  - `synchronous=NORMAL` —— WAL 下安全性足够且不牺牲太多吞吐(掉电最多丢最后一个事务,而投递协议 §7 保证任何丢失都收敛为 `unknown` → needs_human,不会重复投递);
+  - `synchronous=FULL` —— **Phase 2 复审后由 NORMAL 调整为 FULL**(每次 COMMIT fsync WAL;论证见 §2.1。写入量每 tick 数条,FULL 的代价可忽略;该值不暴露为配置项——配置不可弱化安全性);由测试 `test_synchronous_full_is_enforced` 与源码扫描锁定;
   - `busy_timeout=5000`;`foreign_keys=ON`。
 - **写事务模板**:所有多语句写一律 `BEGIN IMMEDIATE` → … → `COMMIT`,失败 `ROLLBACK`。禁止隐式事务。
 - CLI 与守护进程同时写:靠 IMMEDIATE + busy_timeout 串行化;CLI 写操作(如 pause)为短事务,冲突概率低且可重试。
 - 单实例锁:**守护进程启动时对 `$state_dir/daemon.lock` 取 `flock(LOCK_EX|LOCK_NB)`**,失败即退出并提示(场景 S-17);`tick`/`check` 同样短暂持锁(评估期间),避免与守护进程并发投递。锁文件不保证跨 NFS(文档注明仅支持本地文件系统)。
+
+### 2.1 持久化安全性复审:为什么 synchronous 必须是 FULL(Phase 2 结论)
+
+原 v1.0 设计采用 `synchronous=NORMAL`,理由是"掉电最多丢最后一个事务,投递协议 §7 会把任何丢失收敛为 unknown → needs_human"。Phase 2 实现时复审发现该论证有一处错误、一处低估:
+
+1. **论证错误**:`attempting` 先落库(§5 步骤 3)→ COMMIT 返回 → spawn `codex queue`。在 NORMAL 下 COMMIT 不同步 fsync WAL,**COMMIT 返回 ≠ 记录已持久**。若掉电发生在"COMMIT 已返回、WAL 尚未 fsync"的窗口,且 spawn 的队列消息已经发出(外部副作用不可回滚),重启后数据库中没有这条投递记录:守门重读看不到 deliveries 行、failure 仍 open → 重新评估 → **第二次投递同一失败**。`UNIQUE(failure_id, attempt_no)` 无法拦截——被丢掉的行已不存在。这直接违反 FR-05-A5(每失败至多一次成功投递)与 FR-08-A7。原论证只考虑了"attempting 已丢失 → 收敛 unknown"的安全方向,漏掉了"spawn 已发生但登记丢失 → 双投"的不安全方向。
+2. **低估**:NORMAL 的丢失窗口不是"最后一个事务",而是**自上次 WAL fsync 以来的全部已提交事务**(检查点之前的整段)。同理,投递门控状态(`runtime_flags.global_pause`、`sessions.enabled/auto_resume`)在该窗口内丢写,同样可能造成"用户以为已暂停、工具却投递了"的事故——这不是投递协议能兜底的。
+
+**决策(D-PER-7)**:`synchronous=FULL`,不可配置。FULL 在 WAL 模式下每次 COMMIT 都 fsync WAL,"attempting 已落库"在 spawn 前即为持久事实;所有门控状态写入即时持久。代价是每次写事务一次 fsync——本工具写负载为每 tick 数条、远低于性能预算(NFR-07 < 5s/tick),不值得为省几毫秒引入双投风险。剩余风险:commit 之后的 outcome 更新若丢失,只会多出一条 `attempting` → 启动清扫转 unknown → needs_human(fail-closed,安全方向)。
 
 ## 3. 模式(Schema)v1
 
@@ -240,10 +249,10 @@ COMMIT;
 
 ## 6. 迁移框架
 
-- 目录 `src/codex_autopilot/store/migrations/`:`NNNN_描述.sql`(NNNN 从 0001 起,即上文 v1 全量)。
+- 目录 `src/codex_autopilot/store/migrations/`:`NNNN_描述.sql`(NNNN 从 0001 起,即上文 v1 全量;`schema_migrations` 表本身由 runner 在应用任何迁移前 bootstrap 创建,不在迁移文件内)。
 - 启动/CLI 打开数据库时:创建 `schema_migrations` → 依序执行未应用迁移(每个迁移一个 IMMEDIATE 事务)→ 记录版本。
 - 禁止修改已发布迁移;变更 = 新增迁移。降级不支持(文档说明,回滚靠备份)。
-- 迁移执行前后做 `PRAGMA user_version` 与表内版本双写,防半迁移状态。
+- 迁移执行时 `PRAGMA user_version` 与表内版本在**同一事务**内双写,防半迁移状态;打开数据库时校验两者一致,不一致即拒绝打开(受限,交人工处理)。
 
 ## 7. 崩溃恢复(启动清扫)
 
@@ -255,7 +264,7 @@ COMMIT;
 4. 状态自洽检查:session_state 指向的 plan/failure 存在且状态一致;不一致 → 该会话 NEEDS_HUMAN(而非猜测修复)。
 5. WAL 检查点(`PRAGMA wal_checkpoint(TRUNCATE)`),记录启动审计。
 
-kill -9 安全性论证:SQLite WAL 崩溃后自动回滚未完成事务;已提交事务(含 `attempting` 登记)必然可见,由步骤 2 收敛。任何时点掉电最多导致:多一条 `unknown` 投递(人工确认),**不可能**导致同一失败两次投递——第二次插入会被 UNIQUE 或守门重读拦截。
+kill -9 安全性论证:SQLite WAL 崩溃后自动回滚未完成事务;已提交事务(含 `attempting` 登记)必然可见,由步骤 2 收敛。掉电安全性由 `synchronous=FULL` 保证(§2.1):`attempting` 在 spawn 前已 fsync 持久,掉电后登记仍在 → 清扫转 unknown → 人工确认,不会重复投递。任何时点掉电最多导致:多一条 `unknown` 投递(人工确认),**不可能**导致同一失败两次投递——第二次插入会被 UNIQUE 或守门重读拦截。
 
 ## 8. 数据保留与体积控制
 
@@ -286,3 +295,4 @@ kill -9 安全性论证:SQLite WAL 崩溃后自动回滚未完成事务;已提�
 | D-PER-4 | 审计 append-only + 仅 INSERT | 可信回溯(NFR-06) | 可编辑日志表 |
 | D-PER-5 | daemon flock 单实例 + tick 短暂持锁 | 防双调度器竞争投递(S-17),实现简单 | 仅靠数据库锁(粒度不足,评估期间仍可并发) |
 | D-PER-6 | 时间统一 Unix 秒 UTC | 时区零歧义;展示层本地化(NFR-04) | 本地时间字符串(排序/比较地狱) |
+| D-PER-7 | `synchronous=FULL`(Phase 2 复审,由 NORMAL 调整) | NORMAL 下 attempting 登记可能在 spawn 后丢失 → 双投;门控状态丢写 → 违背用户暂停意图。论证见 §2.1 | NORMAL(省 fsync,但引入双投风险,收益每 tick 几毫秒) |

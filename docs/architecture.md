@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | Phase 1 定稿 v1.0 |
+| 状态 | v1.1(Phase 2 实现同步;D2 经安全复审修订) |
 | 覆盖需求 | 全部 FR/NFR 的结构映射 |
 | 关联 | 全部专项设计文档 |
 
@@ -128,7 +128,7 @@ sequenceDiagram
 | # | 决策 | 详细理由所在 |
 | --- | --- | --- |
 | D1 | Python 3.11+;运行时依赖仅 click | 本表 §8 |
-| D2 | SQLite WAL、无 ORM、手写迁移 | persistence.md §1/§10 |
+| D2 | SQLite WAL、`synchronous=FULL`、无 ORM、手写迁移(Phase 2 复审:FULL 保证投递幂等,见 persistence.md §2.1) | persistence.md §1/§2/§2.1 |
 | D3 | 单线程 tick 循环(非 asyncio/多线程) | 本文档 §4 |
 | D4 | 会话注册存 SQLite,全局配置存 TOML | session-management.md §8 D-SES-2 |
 | D5 | 账户=CODEX_HOME;额度挂账户、按账户缓存合并查询 | session-management.md §1、quota-monitoring.md §4 |
